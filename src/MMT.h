@@ -1959,7 +1959,10 @@ namespace MMT
 
 			message_id = bs.GetWord();
 			version = bs.GetByte();
-			length = bs.GetWord();
+			if (message_id == 0x8000 || message_id == 0x8001 || message_id == 0x8002)
+				length = bs.GetWord();
+			else
+				length = bs.GetDWord();
 
 			return nRet;
 		}
@@ -2242,15 +2245,14 @@ namespace MMT
 
 								Data_Units.emplace_back();
 								auto& back = Data_Units.back();
-								back.data_unit_length = left_payload_data_len;
+								back.data_unit_length = bs.GetWord();
 								back.movie_fragment_sequence_number = bs.GetDWord();
 								back.sample_number = bs.GetDWord();
 								back.offset = bs.GetDWord();
 								back.priority = bs.GetByte();
 								back.dependency_counter = bs.GetByte();
 
-								if (left_bits < ((uint64_t)back.data_unit_length << 3) + 16 ||
-									back.data_unit_length < 14)
+								if (left_bits < ((uint64_t)back.data_unit_length << 3) + 16)
 									return RET_CODE_BOX_TOO_SMALL;
 
 								left_bits -= 16ULL << 3;
@@ -2258,7 +2260,17 @@ namespace MMT
 
 								if (left_payload_data_len > 0 && left_bits > 0)
 								{
-									int actual_payload_size = (int)AMP_MIN((uint64_t)back.data_unit_length - 14, (left_bits >> 3));
+									int actual_payload_size = 0;
+									if (back.data_unit_length < 14)
+									{
+										actual_payload_size = 0;//Just skip this MFU data bytes
+									}
+									else
+									{
+										actual_payload_size = (int)AMP_MIN((uint64_t)back.data_unit_length - 14, (left_bits >> 3));
+									}
+									// Make a defensive fix here to avoid the data_unit_length exceed the left_payload_data_len, and cause out of range of reading data
+									actual_payload_size = (int)AMP_MIN(left_payload_data_len, actual_payload_size);
 									if (actual_payload_size > 0)
 									{
 										back.MFU_data_bytes.resize(actual_payload_size);
