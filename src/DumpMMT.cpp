@@ -676,7 +676,11 @@ int DumpMMTOneStream()
 				return RET_CODE_ERROR;
 			}
 		src_packet_id[0] = (uint16_t)i64Val;
-		Outputfiles[0] = PIDs + iterParam->second;;
+		Outputfiles[0] = iterParam->second;
+		if (Outputfiles[0].rfind(".") == std::string::npos)// No dot in output file name
+			Outputfiles[0] += ".";
+		Outputfiles[1] = Outputfiles[0];
+		Outputfiles[0].insert(Outputfiles[0].rfind("."), "_" + PIDs);
 
 		PIDs = g_params["pid"].substr(iterPID+1, g_params["pid"].length());
 		sp = PIDs.c_str();
@@ -687,7 +691,7 @@ int DumpMMTOneStream()
 			return RET_CODE_ERROR;
 		}
 		src_packet_id[1] = (uint16_t)i64Val;
-		Outputfiles[1] = PIDs + iterParam->second;;
+		Outputfiles[1].insert(Outputfiles[1].rfind("."), "_" + PIDs);
 		PIDN = 1;
 	}
 
