@@ -460,6 +460,8 @@ int ShowMMTPackageInfo()
 					CIDPAMsgs[CID] = emptyTreePLTMAP;
 				}
 
+				pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->Print();//added to process M2 section
+
 				// Check whether the current PA message contains a complete message
 				if (pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->fragmentation_indicator == 0 ||
 					pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->fragmentation_indicator == 3 ||
@@ -774,7 +776,6 @@ int DumpMMTOneStream()
 					pHeaderCompressedIPPacket->MMTP_Packet->Packet_id == src_packet_id[1])
 					nFilterTLVPackets++;
 
-
 				if (pHeaderCompressedIPPacket->MMTP_Packet->Payload_type == 0)
 				{
 					// Create a new ES re-packer to repack the NAL unit to an Annex-B bitstream
@@ -797,12 +798,7 @@ int DumpMMTOneStream()
 							}
 							else if (asset_type == 'mp4a')
 								config.codec_id = CODEC_ID_A_MPEG4_AAC;
-
-							//						auto iterParam = g_params.find("output");
-							//						if (iterParam != g_params.end())
-							//							strcpy_s(config.es_output_file_path, _countof(config.es_output_file_path), iterParam->second.c_str());
-							//						else
-							//							memset(config.es_output_file_path, 0, sizeof(config.es_output_file_path));
+							//memset(config.es_output_file_path, 0, sizeof(config.es_output_file_path));
 							strcpy_s(config.es_output_file_path, _countof(config.es_output_file_path), Outputfiles[i].c_str());
 
 							pESRepacker[i] = new CESRepacker(ES_BYTE_STREAM_NALUNIT_WITH_LEN, dstESFmt);
