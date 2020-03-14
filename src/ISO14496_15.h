@@ -950,6 +950,21 @@ namespace ISOBMFF
 		int Flush();
 	};
 
+	struct AACSampleRepacker : public NALAUSampleRepackerBase
+	{
+		ISOBMFF::HEVCDecoderConfigurationRecord*
+			m_HEVCConfigRecord;
+		std::vector<std::tuple<uint8_t* /*pNalUnitBuf*/, int /*NumBytesInNalUnit*/>>
+			m_vNonVCLNUs;
+
+		AACSampleRepacker(FILE* fp, FILE* fw, ISOBMFF::HEVCDecoderConfigurationRecord* pHEVCConfigRecord)
+			: NALAUSampleRepackerBase(fp, fw), m_HEVCConfigRecord(pHEVCConfigRecord) {}
+
+		int	RepackSamplePayloadToAnnexBByteStream(uint32_t sample_size, FLAG_VALUE keyframe);
+		int RepackNALUnitToAnnexBByteStream(uint8_t* pNalUnitBuf, int NumBytesInNalUnit);
+		int Flush();
+	};
+
 } // namespace  ISOBMFF
 
 #ifdef _MSC_VER

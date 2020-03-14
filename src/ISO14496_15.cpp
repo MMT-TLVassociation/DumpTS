@@ -451,4 +451,82 @@ namespace ISOBMFF
 		return RET_CODE_SUCCESS;
 	}
 
+	int	AACSampleRepacker::RepackSamplePayloadToAnnexBByteStream(uint32_t sample_size, FLAG_VALUE keyframe)
+	{
+		//To do
+		return RET_CODE_SUCCESS;
+	}
+
+	int AACSampleRepacker::RepackNALUnitToAnnexBByteStream(uint8_t* pNalUnitBuf, int NumBytesInNalUnit)
+	{
+		uint8_t one_bytes_start_prefixes[1] = { 0x56 };
+		uint8_t* bytelength;
+		int nallength;
+
+		if (m_fpDst != nullptr)
+		{
+			fwrite(one_bytes_start_prefixes, 1, 1, m_fpDst);
+
+			nallength = NumBytesInNalUnit;
+			bytelength = (uint8_t*)((int)(nallength >> 8) & 0x1F | 0xE0);
+			fputc((int)bytelength, m_fpDst);
+			bytelength = (uint8_t*)((int)(nallength) & 0xFF);
+			fputc((int)bytelength, m_fpDst);
+
+			//uint8_t* pNuBuf = new uint8_t[cbNuBuf];
+
+			//pNuBuf = pNalUnitBuf;
+
+			if (fwrite(pNalUnitBuf, 1, (size_t)nallength, m_fpDst) != (size_t)nallength)
+			{
+				printf("[HEVCSampleRepacker] Failed to write %u bytes of NAL Unit to the output file.\n", nallength);
+				return RET_CODE_ERROR;
+			}
+			//delete[] pNuBuf;
+		}
+
+		
+		return RET_CODE_SUCCESS;
+	}
+
+
+	int AACSampleRepacker::Flush()
+	{
+		
+		/*uint8_t four_bytes_start_prefixes[4] = { 0, 0, 0, 1 };
+		uint8_t three_bytes_start_prefixes[3] = { 0, 0, 1 };
+
+		for (auto& v : m_vNonVCLNUs)
+		{
+			uint8_t* pNuBuf = std::get<0>(v);
+			int cbNuBuf = std::get<1>(v);
+
+			uint8_t nu_type = (pNuBuf[0] >> 1) & 0x3F;
+			//uint8_t nu_nuh_layer_id = ((pNuBuf[0] & 0x1) << 5)&((pNuBuf[1] >> 3) & 0x1F);
+
+			bool is_zero_byte_present = (nu_type == 32 || nu_type == 33 || nu_type == 34) ? true : false;
+			if (m_fpDst != nullptr)
+			{
+				uint8_t cbStartCodePrefix = is_zero_byte_present ? 4 : 3;
+				if (fwrite(is_zero_byte_present ? four_bytes_start_prefixes : three_bytes_start_prefixes, 1, cbStartCodePrefix, m_fpDst) != cbStartCodePrefix)
+				{
+					printf("[HEVCSampleRepacker] Failed to flush %u bytes of start code prefix to the output file.\n", cbStartCodePrefix);
+					return RET_CODE_ERROR;
+				}
+
+				if (fwrite(pNuBuf, 1, (size_t)cbNuBuf, m_fpDst) != (size_t)cbNuBuf)
+				{
+					printf("[HEVCSampleRepacker] Failed to flush %u bytes of NAL Unit to the output file.\n", cbNuBuf);
+					return RET_CODE_ERROR;
+				}
+			}
+
+			delete[] pNuBuf;
+		}
+
+		m_vNonVCLNUs.clear();*/
+
+		return RET_CODE_SUCCESS;
+	}
+
 }

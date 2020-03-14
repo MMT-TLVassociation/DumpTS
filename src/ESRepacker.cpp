@@ -17,7 +17,8 @@ CESRepacker::~CESRepacker()
 	if (m_external_repacker != nullptr)
 	{
 		if (m_config.codec_id == CODEC_ID_V_MPEG4_AVC ||
-			m_config.codec_id == CODEC_ID_V_MPEGH_HEVC)
+			m_config.codec_id == CODEC_ID_V_MPEGH_HEVC ||
+			m_config.codec_id == CODEC_ID_A_MPEG4_AAC)
 		{
 			delete m_NALAURepacker;
 		}
@@ -98,6 +99,10 @@ int CESRepacker::Open(const char* szSrcFile)
 		else if (m_config.codec_id == CODEC_ID_V_MPEGH_HEVC)
 		{
 			m_NALAURepacker = new ISOBMFF::HEVCSampleRepacker(m_fpSrc, m_fpDst, m_config.pHEVCConfigRecord);
+		}
+		else if (m_config.codec_id == CODEC_ID_A_MPEG4_AAC) //added for TLVMMT MPEG4_AAC
+		{
+			m_NALAURepacker = new ISOBMFF::AACSampleRepacker(m_fpSrc, m_fpDst, m_config.pHEVCConfigRecord);
 		}
 	}
 
@@ -370,6 +375,7 @@ int	CESRepacker::Repack(uint32_t sample_size, FLAG_VALUE keyframe)
 int CESRepacker::Process(uint8_t* pBuf, int cbSize, FRAGMENTATION_INDICATOR nal_fragmentation_indicator)
 {
 	int iRet = RET_CODE_SUCCESS;
+	unsigned char header[4] = { 0x00, 0x00, 0x00, 0x01 };
 
 	if (m_lrb_NAL == nullptr)
 		m_lrb_NAL = AM_LRB_Create(4 * 1024 * 1024);
@@ -381,6 +387,8 @@ int CESRepacker::Process(uint8_t* pBuf, int cbSize, FRAGMENTATION_INDICATOR nal_
 			nDelimiterLengthSize = m_config.pAVCConfigRecord->lengthSizeMinusOne + 1;
 		else if (m_config.codec_id == CODEC_ID_V_MPEGH_HEVC && m_config.pHEVCConfigRecord != nullptr)
 			nDelimiterLengthSize = m_config.pHEVCConfigRecord->lengthSizeMinusOne + 1;
+		else if (m_config.codec_id == ES_BYTE_STREAM_TLVMMT_MPEG4_AAC && m_config.pHEVCConfigRecord != nullptr) //added for ES_BYTE_STREAM_TLVMMT_MPEG4_AAC
+			nDelimiterLengthSize = m_config.pHEVCConfigRecord->lengthSizeMinusOne + 1; //MPEG4_AAC in ot HEVC, but it's modified in 
 		else if (m_config.NALUnit_Length_Size > 0 && (size_t)m_config.NALUnit_Length_Size <= sizeof(uint64_t))
 			nDelimiterLengthSize = m_config.NALUnit_Length_Size;
 
@@ -423,7 +431,7 @@ int CESRepacker::Process(uint8_t* pBuf, int cbSize, FRAGMENTATION_INDICATOR nal_
 							printf("[ESRepacker] Failed to write %d bytes into the output file.\n", nNalBufLen);
 					}
 				}
-				
+
 				AM_LRB_Reset(m_lrb_NAL);
 			}
 		}
@@ -490,6 +498,10 @@ int CESRepacker::Process(uint8_t* pBuf, int cbSize, FRAGMENTATION_INDICATOR nal_
 							if (g_verbose_level > 0)
 								printf("[ESRepacker] Hit an unexpected case, NAL unit length(%" PRIu64 ") indicated by delimiter-length is less than the actual(%d).\n",
 									nNalUnitLen, nNalBufLen - nDelimiterLengthSize);
+
+							//add for ES_BYTE_STREAM_TLVMMT_MPEG4_AAC, {56 xx xx 20 00 11 90}
+							nNalUnitLen = nNalBufLen;
+							m_NALAURepacker->RepackNALUnitToAnnexBByteStream(pNalBuf, (int)nNalUnitLen);
 						}
 					}
 					else
@@ -566,7 +578,7 @@ int CESRepacker::Flush()
 
 int CESRepacker::Close()
 {
-	if ((m_config.codec_id == CODEC_ID_V_MPEG4_AVC || m_config.codec_id == CODEC_ID_V_MPEGH_HEVC) && m_NALAURepacker != nullptr)
+	if ((m_config.codec_id == CODEC_ID_V_MPEG4_AVC || m_config.codec_id == CODEC_ID_V_MPEGH_HEVC) || m_config.codec_id == CODEC_ID_A_MPEG4_AAC && m_NALAURepacker != nullptr)
 	{
 		delete m_NALAURepacker;
 		m_NALAURepacker = nullptr;

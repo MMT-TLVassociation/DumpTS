@@ -636,7 +636,7 @@ int DumpMMTOneStream()
 	int nRet = RET_CODE_SUCCESS;
 	int nFilterTLVPackets = 0, nFilterMFUs = 0, nParsedTLVPackets = 0;
 	TreeCIDPAMsgs CIDPAMsgs;
-	uint32_t asset_type = 0;
+	uint32_t asset_type[2] = { 'hev1', 'mp4a' };
 	CESRepacker* pESRepacker[2] = { nullptr };
 
 	auto start_time = std::chrono::high_resolution_clock::now();
@@ -652,7 +652,7 @@ int DumpMMTOneStream()
 	uint16_t src_packet_id[2];
 	std::string Outputfiles[2];
 	auto iterParam = g_params.find("output");
-	if (iterPID ==0)//Only one pid this case
+	if (iterPID ==0)//Only one pid this case, NOTE asset_type[0] = 'hev1'
 	{
 		sp = g_params["pid"].c_str();
 		ep = sp + g_params["pid"].length();
@@ -664,7 +664,7 @@ int DumpMMTOneStream()
 		src_packet_id[0] = (uint16_t)i64Val;
 		PIDN = 0;
 	}
-	else//Two pids
+	else//Two pids, NOTE asset_type[0] = 'hev1'
 	{
 		std::string PIDs;
 		PIDs = g_params["pid"].substr(0, iterPID);
@@ -714,6 +714,7 @@ int DumpMMTOneStream()
 		printf("Failed to open the file: %s.\n", szInputFile.c_str());
 		return nRet;
 	}
+	std::vector<uint8_t> fullPAMessage;
 
 	try
 	{
@@ -784,18 +785,21 @@ int DumpMMTOneStream()
 							memset(&config, 0, sizeof(config));
 
 							ES_BYTE_STREAM_FORMAT dstESFmt = ES_BYTE_STREAM_RAW;
-							if (IS_HEVC_STREAM(asset_type))
+							if (IS_HEVC_STREAM(asset_type[i]))
 							{
 								config.codec_id = CODEC_ID_V_MPEGH_HEVC;
 								dstESFmt = ES_BYTE_STREAM_HEVC_ANNEXB;
 							}
-							else if (IS_AVC_STREAM(asset_type))
+							else if (IS_AVC_STREAM(asset_type[i]))
 							{
 								config.codec_id = CODEC_ID_V_MPEG4_AVC;
 								dstESFmt = ES_BYTE_STREAM_AVC_ANNEXB;
 							}
-							else if (asset_type == 'mp4a')
+							else if (asset_type[i] == 'mp4a')
+							{
 								config.codec_id = CODEC_ID_A_MPEG4_AAC;
+								dstESFmt = ES_BYTE_STREAM_TLVMMT_MPEG4_AAC;
+							}
 							//memset(config.es_output_file_path, 0, sizeof(config.es_output_file_path));
 							strcpy_s(config.es_output_file_path, _countof(config.es_output_file_path), Outputfiles[i].c_str());
 
@@ -822,7 +826,7 @@ int DumpMMTOneStream()
 						ProcessMFU(CID,
 							pHeaderCompressedIPPacket->MMTP_Packet->Packet_id,
 							pHeaderCompressedIPPacket->MMTP_Packet->Payload_type,
-							asset_type,
+							asset_type[PIDN],
 							actual_fragmenttion_indicator,
 							&m.MFU_data_bytes[0], (int)m.MFU_data_bytes.size(), pESRepacker[PIDN]);
 
@@ -857,9 +861,10 @@ int DumpMMTOneStream()
 
 					// Check whether the current PA message contains a complete message
 					if (pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->fragmentation_indicator == 0 ||
+						pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->fragmentation_indicator == 3 ||
 						pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->Aggregate_flag == 1)
 					{
-						for (auto& m : pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->messages)
+					/*	for (auto& m : pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->messages)
 						{
 							bool bChanged = false;
 							auto& v = std::get<1>(m);
@@ -869,12 +874,52 @@ int DumpMMTOneStream()
 								if (new_asset_type != 0 && new_asset_type != asset_type)
 									asset_type = new_asset_type;
 							}
+						}*/
+						if (fullPAMessage.size() > 0)
+						{
+							for (auto& m : pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->messages)
+							{
+								auto& v = std::get<1>(m);
+								if (v.size() > 0)
+								{
+									size_t orig_size = fullPAMessage.size();
+									fullPAMessage.resize(orig_size + v.size());
+									memcpy(&fullPAMessage[orig_size], &v[0], v.size());
+								}
+							}
+
+							ProcessPAMessage(CIDPAMsgs, CID, pHeaderCompressedIPPacket->MMTP_Packet->Packet_id, &fullPAMessage[0], (int)fullPAMessage.size());
+							uint32_t new_asset_type = FindAssetType(CIDPAMsgs, CID, src_packet_id[PIDN]);
+							//if (new_asset_type != 0 && new_asset_type != asset_type)
+							//	asset_type = new_asset_type;
+							fullPAMessage.clear();
 						}
+						else
+						{
+							for (auto& m : pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->messages)
+							{
+								auto& v = std::get<1>(m);
+								ProcessPAMessage(CIDPAMsgs, CID, pHeaderCompressedIPPacket->MMTP_Packet->Packet_id, &v[0], (int)v.size());
+							}
+						}
+
 					}
 					else
 					{
+						assert(pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->messages.size() <= 1);
 						// Need add the data into the ring buffer, and parse it later
+						for (auto& m : pHeaderCompressedIPPacket->MMTP_Packet->ptr_Messages->messages)
+						{
+							auto& v = std::get<1>(m);
+							if (v.size() > 0)
+							{
+								size_t orig_size = fullPAMessage.size();
+								fullPAMessage.resize(orig_size + v.size());
+								memcpy(&fullPAMessage[orig_size], &v[0], v.size());
+							}
+						}
 					}
+
 				}
 			}
 

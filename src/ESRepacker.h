@@ -55,6 +55,7 @@ enum ES_BYTE_STREAM_FORMAT
 	ES_BYTE_STREAM_HEVC_ANNEXB,			// (Leading_zero_8bits) + (zero_byte) + start_code_prefix_one_3bytes + nal_unit + (trailing_zero_8bits)
 	ES_BYTE_STREAM_ISO_NALAU_SAMPLE,	// NALUnitLength + nal_unit + NALUnitLength + .....
 	ES_BYTE_STREAM_NALUNIT_WITH_LEN,	// NALUnitLength + nal_unit
+	ES_BYTE_STREAM_TLVMMT_MPEG4_AAC,    // MPEG4_AAC for TLV/MMT
 };
 
 enum ES_SEEK_POINT_TYPE
