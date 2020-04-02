@@ -171,6 +171,12 @@ Here are some examples of command lines:
     DumpTS 00301.mmts --CID=0 --pid=0x100 --output=e00301.hevc
     ```
     Extract the HEVC stream from header compressed IP packet with context_id: 0 and MMT packet id: 0x100 from 00301.mmts
+    ```
+    DumpTS 00301.mmts --CID=0 --pid="0xF100&0xF110" --output=e00301.hevc
+    ```
+    Extract the HEVC&AAC stream from header compressed IP packet with context_id: 0 and MMT packet id: 0x100 from 00301.mmts
+    (--pid="0xF100&0xF110" or --pid="0xA001&0xA041")
+
 - Other utilities
     ```
     DumpTs AACScalefactorHuffmanCodebook.txt --VLCTypes=aah --srcfmt=huffman_codebook
