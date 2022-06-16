@@ -1,3 +1,28 @@
+/*
+
+MIT License
+
+Copyright (c) 2021 Ravin.Wang(wangf1978@hotmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
 #pragma once
 
 #include <stdint.h>
@@ -29,8 +54,8 @@ namespace AIFF
 	struct AIFF_CHUNK
 	{
 		uint64_t		start_bitpos = 0;
-		uint32_t        ckID;
-		uint32_t        ckDataSize;
+		uint32_t        ckID = 0;
+		uint32_t        ckDataSize = 0;
 
 		AIFF_CHUNK() {}
 
@@ -85,7 +110,7 @@ namespace AIFF
 			fprintf(out, FIX_HEADER_FMT_STR ": %c%c%c%c\n", szIndent, "ckID",
 				isprint(ckID >> 24) ? (ckID >> 24) : '.', isprint((ckID >> 16) & 0xFF) ? ((ckID >> 16) & 0xFF) : '.',
 				isprint((ckID >> 8) & 0xFF) ? ((ckID >> 8) & 0xFF) : '.', isprint(ckID & 0xFF) ? (ckID & 0xFF) : '.');
-			fprintf(out, FIX_HEADER_FMT_STR ": %lu\n", szIndent, "ckDataSize", ckDataSize);
+			fprintf(out, FIX_HEADER_FMT_STR ": %" PRIu32 "\n", szIndent, "ckDataSize", ckDataSize);
 		}
 	};
 
@@ -104,7 +129,7 @@ namespace AIFF
 
 	struct FormatVersionChunk : public AIFF_CHUNK
 	{
-		uint32_t		timestamp;
+		uint32_t		timestamp = 0;
 
 		int Unpack(CBitstream& bs)
 		{
@@ -141,16 +166,17 @@ namespace AIFF
 
 	struct CommonChunk : public AIFF_CHUNK
 	{
-		uint16_t        numChannels;
-		uint32_t        numSampleFrames;
-		int16_t         sampleSize;
-		uint8_t         sampleRateBytes[10];
-		uint32_t		compressionType;
+		uint16_t        numChannels = 0;
+		uint32_t        numSampleFrames = 0;
+		int16_t         sampleSize = 0;
+		uint8_t         sampleRateBytes[10] = { 0 };
+		uint32_t		compressionType = 0;
 		uint8_t			count_byte = 0;
 		std::string		compressionName;
 
 		int Unpack(CBitstream& bs)
 		{
+			uint64_t pstring_bytecount;
 			int nRet = AIFF_CHUNK::Unpack(bs);
 			if (nRet < 0)
 				return nRet;
@@ -177,11 +203,11 @@ namespace AIFF
 			count_byte = bs.GetByte();
 			left_bits -= (1ULL << 3);
 
-			uint64_t pstring_bytecount = count_byte + ((count_byte % 2 == 0) ? 1 : 0);
+			pstring_bytecount = (uint64_t)count_byte + ((count_byte % 2 == 0) ? 1 : 0);
 			if (left_bits < (pstring_bytecount << 3))
 				goto done;
 
-			compressionName.reserve(count_byte + 1);
+			compressionName.reserve((size_t)count_byte + 1);
 			compressionName.resize(count_byte);
 			bs.Read((uint8_t*)(&compressionName[0]), count_byte);
 
@@ -208,9 +234,9 @@ namespace AIFF
 				memset(szIndent, ' ', ccIndent);
 			}
 
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16u%s\n", szIndent, "numChannels", numChannels, "the number of audio channels for the sound");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16lu%s\n", szIndent, "numSampleFrames", numSampleFrames, "the number of sample frames in the Sound Data Chunk, total sample points: numSampleFrames * numChannels");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16u%s\n", szIndent, "sampleSize", numSampleFrames, "bits per sample");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16" PRIu16 "%s\n", szIndent, "numChannels", numChannels, "the number of audio channels for the sound");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16" PRIu32 "%s\n", szIndent, "numSampleFrames", numSampleFrames, "the number of sample frames in the Sound Data Chunk, total sample points: numSampleFrames * numChannels");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16" PRIu32 "%s\n", szIndent, "sampleSize", numSampleFrames, "bits per sample");
 			fprintf(out, FIX_HEADER_FMT_STR ": %-16f%s\n", szIndent, "sampleRate", GetSampleRate(), "sample rate");
 
 			if (ckDataSize >= 22)
@@ -228,8 +254,8 @@ namespace AIFF
 
 	struct SoundDataChunk : public AIFF_CHUNK
 	{
-		uint32_t        offset;
-		uint32_t        blocksize;
+		uint32_t        offset = 0;
+		uint32_t        blocksize = 0;
 
 		int Unpack(CBitstream& bs)
 		{
@@ -262,8 +288,8 @@ namespace AIFF
 				memset(szIndent, ' ', ccIndent);
 			}
 
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16lu%s\n", szIndent, "offset", offset, "");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16lu%s\n", szIndent, "blocksize", blocksize, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16" PRIu32 "%s\n", szIndent, "offset", offset, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16" PRIu32 "%s\n", szIndent, "blocksize", blocksize, "");
 		}
 	};
 
@@ -271,13 +297,13 @@ namespace AIFF
 	{
 		struct Marker
 		{
-			MarkerId		id;
-			uint32_t		position;
-			uint8_t			markerName_bytecount;
+			MarkerId		id = 0;
+			uint32_t		position = 0;
+			uint8_t			markerName_bytecount = 0;
 			std::string		markerName;
-		}PACKED;
+		};
 
-		uint16_t		numMarkers;
+		uint16_t		numMarkers = 0;
 		std::vector<Marker>
 						Markers;
 
@@ -308,11 +334,11 @@ namespace AIFF
 					left_bits -= (7ULL << 3);
 
 					auto markerName_bytecount = Markers.back().markerName_bytecount;
-					uint64_t pstring_bytecount = markerName_bytecount + ((markerName_bytecount % 2 == 0) ? 1 : 0);
+					uint64_t pstring_bytecount = (uint64_t)markerName_bytecount + ((markerName_bytecount % 2 == 0) ? 1 : 0);
 					if (left_bits < (pstring_bytecount << 3))
 						break;
 
-					Markers.back().markerName.reserve(markerName_bytecount + 1);
+					Markers.back().markerName.reserve((size_t)markerName_bytecount + 1);
 					Markers.back().markerName.resize(markerName_bytecount);
 					bs.Read((uint8_t*)(&Markers.back().markerName[0]), markerName_bytecount);
 
@@ -339,30 +365,30 @@ namespace AIFF
 				memset(szIndent, ' ', ccIndent);
 			}
 
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16u%s\n", szIndent, "numMarkers", numMarkers, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16" PRIu16 "%s\n", szIndent, "numMarkers", numMarkers, "");
 			for (size_t i = 0; i < Markers.size(); i++)
 			{
-				fprintf(out, FIX_HEADER_FMT_STR ": %d\n", szIndent, "Marker index", i);
-				fprintf(out, "    %s%16s: %- 16u%s\n", szIndent, "id", Markers[i].id, "a number that uniquely identifies the marker within a FORM AIFC");
-				fprintf(out, "    %s%16s: %- 16lu%s\n", szIndent, "position", Markers[i].position, "The marker's position in the sound data");
+				fprintf(out, FIX_HEADER_FMT_STR ": %zu\n", szIndent, "Marker index", i);
+				fprintf(out, "    " FIX_HEADER_FMT_STR ": %-16" PRIi16 "%s\n", szIndent, "id", Markers[i].id, "a number that uniquely identifies the marker within a FORM AIFC");
+				fprintf(out, "    " FIX_HEADER_FMT_STR ": %-16" PRIu32 "%s\n", szIndent, "position", Markers[i].position, "The marker's position in the sound data");
 
 				if (Markers[i].markerName_bytecount > 0)
-					fprintf(out, "    %s%16s: %s\n", szIndent, "markerName", Markers[i].markerName.c_str());
+					fprintf(out, "    " FIX_HEADER_FMT_STR ": %s\n", szIndent, "markerName", Markers[i].markerName.c_str());
 			}
 		}
-	}PACKED;
+	};
 
 	struct CommentsChunk : public AIFF_CHUNK
 	{
 		struct MarkerComment
 		{
-			uint32_t		timeStamp;
-			MarkerId		marker;
-			uint16_t		count;
+			uint32_t		timeStamp = 0;
+			MarkerId		marker = 0;
+			uint16_t		count = 0;
 			std::string		text;
-		}PACKED;
+		};
 
-		uint16_t		numComments;
+		uint16_t		numComments = 0;
 		std::vector<MarkerComment>
 						comments;
 
@@ -393,13 +419,13 @@ namespace AIFF
 					left_bits -= (8ULL << 3);
 
 					auto count = comments.back().count;
-					uint64_t text_bytecount = count + ((count % 2 == 0) ? 0 : 1);
+					uint64_t text_bytecount = (uint64_t)count + ((count % 2 == 0) ? 0 : 1);
 					if (left_bits < (text_bytecount << 3))
 						break;
 
 					if (count > 0)
 					{
-						comments.back().text.reserve(count + 1);
+						comments.back().text.reserve((size_t)count + 1);
 						comments.back().text.resize(count);
 						bs.Read((uint8_t*)(&comments.back().text[0]), count);
 
@@ -427,36 +453,36 @@ namespace AIFF
 				memset(szIndent, ' ', ccIndent);
 			}
 
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16u%s\n", szIndent, "numMarkers", numComments, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16u%s\n", szIndent, "numMarkers", numComments, "");
 			for (size_t i = 0; i < comments.size(); i++)
 			{
-				fprintf(out, FIX_HEADER_FMT_STR ": %d\n", szIndent, "Comment index", i);
+				fprintf(out, FIX_HEADER_FMT_STR ": %zu\n", szIndent, "Comment index", i);
 				fprintf(out, "    " FIX_HEADER_FMT_STR ": %s\n", szIndent, "timeStamp", DateTimeStr(comments[i].timeStamp).c_str());
-				fprintf(out, "    " FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "marker", comments[i].marker, comments[i].marker==0?"this comment is not linked to a marker":"the ID of that marker");
-				fprintf(out, "    " FIX_HEADER_FMT_STR ": %- 16u%s\n", szIndent, "count", comments[i].count, "the length of the text that makes up the comment");
+				fprintf(out, "    " FIX_HEADER_FMT_STR ": %-16" PRIi16 "%s\n", szIndent, "marker", comments[i].marker, comments[i].marker==0?"this comment is not linked to a marker":"the ID of that marker");
+				fprintf(out, "    " FIX_HEADER_FMT_STR ": %-16" PRIu16 "%s\n", szIndent, "count", comments[i].count, "the length of the text that makes up the comment");
 
 				if (comments[i].count > 0)
 					fprintf(out, "    " FIX_HEADER_FMT_STR ": %s\n", szIndent, "text", comments[i].text.c_str());
 			}
 		}
-	}PACKED;
+	};
 
 	struct InstrumentChunk : public AIFF_CHUNK
 	{
 		struct Loop
 		{
-			int16_t			playMode;
-			MarkerId		beginLoop;
-			MarkerId		endLoop;
+			int16_t			playMode = 0;
+			MarkerId		beginLoop = 0;
+			MarkerId		endLoop = 0;
 		}PACKED;
 
-		int8_t			baseNote;
-		int8_t			detune;
-		int8_t			lowNote;
-		int8_t			highNote;
-		int8_t			lowVelocity;
-		int8_t			highVelocity;
-		int16_t			gain;
+		int8_t			baseNote = 0;
+		int8_t			detune = 0;
+		int8_t			lowNote = 0;
+		int8_t			highNote = 0;
+		int8_t			lowVelocity = 0;
+		int8_t			highVelocity = 0;
+		int16_t			gain = 0;
 		Loop			sustainLoop;
 		Loop			releaseLoop;
 
@@ -502,22 +528,22 @@ namespace AIFF
 				memset(szIndent, ' ', ccIndent);
 			}
 
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "baseNote", baseNote, "the pitch of the originally recorded sound");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "detune", detune, "make small tuning adjustments to the sound");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "lowNote", lowNote, "");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "highNote", highNote, "");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "lowVelocity", lowVelocity, "");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "highVelocity", highVelocity, "");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "gain", gain, "the amount to change the gain of the sound");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "baseNote", baseNote, "the pitch of the originally recorded sound");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "detune", detune, "make small tuning adjustments to the sound");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "lowNote", lowNote, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "highNote", highNote, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "lowVelocity", lowVelocity, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "highVelocity", highVelocity, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "gain", gain, "the amount to change the gain of the sound");
 
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "sustainLoop.playMode", sustainLoop.playMode, 
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "sustainLoop.playMode", sustainLoop.playMode, 
 				sustainLoop.playMode == 0?"NoLooping":(sustainLoop.playMode == 1?"ForwardLooping":(sustainLoop.playMode == 2?"ForwardBackwardLooping":"Unknown")));
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "sustainLoop.beginLoop", sustainLoop.beginLoop, "");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "sustainLoop.endLoop", sustainLoop.endLoop, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "sustainLoop.beginLoop", sustainLoop.beginLoop, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "sustainLoop.endLoop", sustainLoop.endLoop, "");
 
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "releaseLoop.playMode", releaseLoop.playMode, "");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "releaseLoop.beginLoop", releaseLoop.beginLoop, "");
-			fprintf(out, FIX_HEADER_FMT_STR ": %- 16d%s\n", szIndent, "releaseLoop.endLoop", releaseLoop.endLoop, 
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "releaseLoop.playMode", releaseLoop.playMode, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "releaseLoop.beginLoop", releaseLoop.beginLoop, "");
+			fprintf(out, FIX_HEADER_FMT_STR ": %-16d%s\n", szIndent, "releaseLoop.endLoop", releaseLoop.endLoop, 
 				releaseLoop.playMode == 0 ? "NoLooping" : (releaseLoop.playMode == 1 ? "ForwardLooping" : (releaseLoop.playMode == 2 ? "ForwardBackwardLooping" : "Unknown")));
 		}
 
@@ -537,8 +563,16 @@ namespace AIFF
 			if (left_bits == 0)
 				return RET_CODE_SUCCESS;
 
-			text.resize((size_t)(left_bits >> 3));
-			bs.Read((uint8_t*)&text[0], (size_t)(left_bits >> 3));
+			size_t left_bytes = (size_t)(left_bits >> 3);
+			text.resize(left_bytes);
+			
+			if (left_bytes > INT32_MAX)
+			{
+				SkipLeftBits(bs);
+				return RET_CODE_OUTOFMEMORY;
+			}
+
+			bs.Read((uint8_t*)&text[0], (int)left_bytes);
 			return RET_CODE_SUCCESS;
 		}
 
@@ -561,11 +595,11 @@ namespace AIFF
 			}
 		}
 
-	}PACKED;
+	};
 
 	struct FormAIFCChunk : public AIFF_CHUNK
 	{
-		uint32_t        formType;
+		uint32_t        formType = 0;
 		std::vector<AIFF_CHUNK*>
 						chunks;
 
@@ -629,7 +663,7 @@ namespace AIFF
 				if ((nRet = ptr_chunk->Unpack(bs)) < 0)
 					goto done;
 
-				uint64_t ckTotalBits = ((uint64_t)(ptr_chunk->ckDataSize + 8)) << 3;
+				uint64_t ckTotalBits = (((uint64_t)ptr_chunk->ckDataSize + 8)) << 3;
 
 				if (left_bits < ckTotalBits)
 					goto done;

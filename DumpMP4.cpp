@@ -1,98 +1,55 @@
-#include "StdAfx.h"
-#include <vector>
-#include <unordered_map>
-#include <map>
+/*
+
+MIT License
+
+Copyright (c) 2021 Ravin.Wang(wangf1978@hotmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+#include "platcomm.h"
 #include "PayloadBuf.h"
 #include "DumpTS.h"
 #include "Bitstream.h"
 #include <assert.h>
-#include <filesystem>
 #include <functional>
 #include "ISO14496_12.h"
 #include "ISO14496_15.h"
+#include "NAL.h"
+#include "AMRFC3986.h"
 
 using namespace std;
-using namespace ISOBMFF;
+using namespace BST::ISOBMFF;
 
 extern const char *dump_msg[];
-extern unordered_map<std::string, std::string> g_params;
+extern map<std::string, std::string, CaseInsensitiveComparator> g_params;
 extern TS_FORMAT_INFO g_ts_fmtinfo;
 extern int g_verbose_level;
 extern DUMP_STATUS g_dump_status;
-
-const char* hevc_nal_unit_type_names[64] = {
-	/*00*/ "VCL::TRAIL_N",
-	/*01*/ "VCL::TRAIL_R",
-	/*02*/ "VCL::TSA_N",
-	/*03*/ "VCL::TSA_R",
-	/*04*/ "VCL::STSA_N",
-	/*05*/ "VCL::STSA_R",
-	/*06*/ "VCL::RADL_N",
-	/*07*/ "VCL::RADL_R",
-	/*08*/ "VCL::RASL_N",
-	/*09*/ "VCL::RASL_R",
-	/*10*/ "VCL::RSV_VCL_N10",
-	/*11*/ "VCL::RSV_VCL_R11",
-	/*12*/ "VCL::RSV_VCL_N12",
-	/*13*/ "VCL::RSV_VCL_R13",
-	/*14*/ "VCL::RSV_VCL_N14",
-	/*15*/ "VCL::RSV_VCL_R15",
-	/*16*/ "VCL::BLA_W_LP Coded",
-	/*17*/ "VCL::BLA_W_RADL",
-	/*18*/ "VCL::BLA_N_LP",
-	/*19*/ "VCL::IDR_W_RADL",
-	/*20*/ "VCL::IDR_N_LP",
-	/*21*/ "VCL::CRA_NUT",
-	/*22*/ "VCL::RSV_IRAP_VCL22",
-	/*23*/ "VCL::RSV_IRAP_VCL23",
-	/*24*/ "VCL::RSV_VCL24",
-	/*25*/ "VCL::RSV_VCL25",
-	/*26*/ "VCL::RSV_VCL26",
-	/*27*/ "VCL::RSV_VCL27",
-	/*28*/ "VCL::RSV_VCL28",
-	/*29*/ "VCL::RSV_VCL29",
-	/*30*/ "VCL::RSV_VCL30",
-	/*31*/ "VCL::RSV_VCL31",
-	/*32*/ "non-VCL::VPS_NUT",
-	/*33*/ "non-VCL::SPS_NUT",
-	/*34*/ "non-VCL::PPS_NUT",
-	/*35*/ "non-VCL::AUD_NUT",
-	/*36*/ "non-VCL::EOS_NUT",
-	/*37*/ "non-VCL::EOB_NUT",
-	/*38*/ "non-VCL::FD_NUT",
-	/*39*/ "non-VCL::PREFIX_SEI_NUT",
-	/*40*/ "non-VCL::SUFFIX_SEI_NUT",
-	/*41*/ "non-VCL::RSV_NVCL41",
-	/*42*/ "non-VCL::RSV_NVCL42",
-	/*43*/ "non-VCL::RSV_NVCL43",
-	/*44*/ "non-VCL::RSV_NVCL44",
-	/*45*/ "non-VCL::RSV_NVCL45",
-	/*46*/ "non-VCL::RSV_NVCL46",
-	/*47*/ "non-VCL::RSV_NVCL47",
-	/*48*/ "non-VCL::UNSPEC48",
-	/*49*/ "non-VCL::UNSPEC49",
-	/*50*/ "non-VCL::UNSPEC50",
-	/*51*/ "non-VCL::UNSPEC51",
-	/*52*/ "non-VCL::UNSPEC52",
-	/*53*/ "non-VCL::UNSPEC53",
-	/*54*/ "non-VCL::UNSPEC54",
-	/*55*/ "non-VCL::UNSPEC55",
-	/*56*/ "non-VCL::UNSPEC56",
-	/*57*/ "non-VCL::UNSPEC57",
-	/*58*/ "non-VCL::UNSPEC58",
-	/*59*/ "non-VCL::UNSPEC59",
-	/*60*/ "non-VCL::UNSPEC60",
-	/*61*/ "non-VCL::UNSPEC61",
-	/*62*/ "non-VCL::UNSPEC62",
-	/*63*/ "non-VCL::UNSPEC63",
-};
+extern const char* hevc_nal_unit_type_names[64];
 
 using MP4_Boxes_Layout = std::vector<std::tuple<uint32_t/*box type*/, int64_t/*start pos*/, int64_t/*end_pos*/>>;
 
 int ReadFullBoxExceptBaseBox(FILE* fp, uint8_t& version, uint32_t flags)
 {
 	uint8_t version_flags[4];
-	if (fread_s(version_flags, sizeof(version_flags), 1, sizeof(version_flags), fp) < sizeof(version_flags))
+	if (fread_s(version_flags, sizeof(version_flags), 1U, sizeof(version_flags), fp) < sizeof(version_flags))
 		return -1;
 
 	version = version_flags[0];
@@ -104,7 +61,7 @@ int ReadFullBoxExceptBaseBox(FILE* fp, uint8_t& version, uint32_t flags)
 int extract_hdlr(FILE* fp)
 {
 	uint8_t hdlr_buf[7];
-	if (fread_s(hdlr_buf, sizeof(hdlr_buf), 1, sizeof(hdlr_buf), fp) < sizeof(hdlr_buf))
+	if (fread_s(hdlr_buf, sizeof(hdlr_buf), 1U, sizeof(hdlr_buf), fp) < sizeof(hdlr_buf))
 		return -1;
 
 	return 0;
@@ -146,6 +103,301 @@ int CopyBoxTypeName(char* szText, int ccSize, uint32_t box_type)
 	return ccSize - ccSizeLeft;
 }
 
+/*
+using BoxSlice =  tuple<Box, header_part, box_part_offset, box_part_size>;
+using BoxSlices = std::vector<BoxSlice>;
+*/
+using BoxSlice = tuple<Box*, bool, uint64_t, uint64_t>;
+using BoxSlices = std::vector<BoxSlice>;
+
+int FlushBoxSlice(BoxSlice& box_slice, FILE* fp, FILE* fw, uint64_t nMDATShift)
+{
+	uint8_t buf[2048];
+	Box* ptr_cur_box = std::get<0>(box_slice);
+	if (ptr_cur_box == nullptr)
+		return RET_CODE_NOTHING_TODO;
+
+	bool header_part = std::get<1>(box_slice);
+	uint64_t box_part_offset = std::get<2>(box_slice);
+	uint64_t box_part_size = std::get<3>(box_slice);
+
+	assert(ptr_cur_box->start_bitpos % 8 == 0);
+	assert(header_part == true || (ptr_cur_box->start_bitpos >> 3) < box_part_offset);
+
+	uint64_t file_offset = header_part ? (ptr_cur_box->start_bitpos >> 3) : box_part_offset;
+	uint32_t box_size = ptr_cur_box->largesize_used ? 1U : (uint32_t)ptr_cur_box->size;
+	uint32_t box_type = ptr_cur_box->type;
+	uint64_t box_large_size = ptr_cur_box->largesize_used ? ptr_cur_box->size : 0;
+
+	if (g_verbose_level > 0)
+	{
+		printf("File offset: %" PRIu64 "(0X%" PRIX64 "), Header Part: %s, Part size: %" PRIu64 "\n", file_offset, file_offset, header_part?"Yes":"No", box_part_size);
+		printf("    box-type: %c%c%c%c(0X%08X), box_size: %" PRIu32 ", large_box_size: %" PRIu64 "\n",
+			isprint((box_type >> 24) & 0xFF) ? ((box_type >> 24) & 0xFF) : '.',
+			isprint((box_type >> 16) & 0xFF) ? ((box_type >> 16) & 0xFF) : '.',
+			isprint((box_type >>  8) & 0xFF) ? ((box_type >>  8) & 0xFF) : '.',
+			isprint((box_type) & 0xFF) ? ((box_type) & 0xFF) : '.', box_type, box_size, box_large_size);
+	}
+
+	if (file_offset >= INT64_MAX)
+		return RET_CODE_INVALID_PARAMETER;
+
+	if (box_part_size == 0)
+	{
+		// If the box slice size is set 0 for the header part, it means the whole box will be written
+		if (header_part == true)
+			box_part_size = ptr_cur_box->size == 0 ? UINT64_MAX : ptr_cur_box->size;
+		else
+			return RET_CODE_INVALID_PARAMETER;
+	}
+
+	if (header_part)
+	{
+		buf[0] = (box_size >> 24) & 0xFF;
+		buf[1] = (box_size >> 16) & 0xFF;
+		buf[2] = (box_size >>  8) & 0xFF;
+		buf[3] = (box_size) & 0xFF;
+		buf[4] = (box_type >> 24) & 0xFF;
+		buf[5] = (box_type >> 16) & 0xFF;
+		buf[6] = (box_type >>  8) & 0xFF;
+		buf[7] = (box_type) & 0xFF;
+		if (fwrite(buf, 1, 8, fw) != 8)
+			return RET_CODE_ERROR;
+
+		if (box_size == 1)
+		{
+			buf[0] = (uint8_t)((box_large_size >> 56) & 0xFF);
+			buf[1] = (uint8_t)((box_large_size >> 48) & 0xFF);
+			buf[2] = (uint8_t)((box_large_size >> 40) & 0xFF);
+			buf[3] = (uint8_t)((box_large_size >> 32) & 0xFF);
+			buf[4] = (uint8_t)((box_large_size >> 24) & 0xFF);
+			buf[5] = (uint8_t)((box_large_size >> 16) & 0xFF);
+			buf[6] = (uint8_t)((box_large_size >>  8) & 0xFF);
+			buf[7] = (uint8_t)(box_large_size & 0xFF);
+			if (fwrite(buf, 1, 8, fw) != 8)
+				return RET_CODE_ERROR;
+		}
+
+		uint8_t box_header_size = (uint8_t)(box_size == 1 ? 16 : 8);
+		if (box_part_size < box_header_size)
+			return RET_CODE_INVALID_PARAMETER;
+
+		box_part_size -= box_header_size;
+		file_offset += box_header_size;
+	}
+
+	// Only box header exist
+	if (box_part_size == 0)
+		return RET_CODE_SUCCESS;
+
+	if (_fseeki64(fp, (int64_t)file_offset, SEEK_SET) != 0)
+		return RET_CODE_ERROR;
+
+	if (nMDATShift > 0 && (box_type == 'stco' || box_type == 'co64'))
+	{
+		size_t actual_read_size = 0UL;
+		size_t read_size = 8;
+		if ((actual_read_size = fread(buf, 1, read_size, fp)) != read_size)
+		{
+			if (!feof(fp))
+				return RET_CODE_ERROR;
+			else
+				box_part_size = 0;	// exit the loop from the next round
+		}
+
+		if (fwrite(buf, 1, actual_read_size, fw) != actual_read_size)
+			return RET_CODE_ERROR;
+
+		if (box_part_size >= actual_read_size)
+			box_part_size -= actual_read_size;
+		else if (box_part_size != 0)
+			return RET_CODE_ERROR;	// Should never happen
+
+		uint32_t entry_size = box_type == 'stco' ? 4 : 8;
+		uint32_t entry_count = ((uint32_t)buf[4] << 24) | ((uint32_t)buf[5] << 16) | ((uint32_t)buf[6] << 8) | (uint32_t)buf[7];
+		uint32_t left_entry_count = (uint32_t)(box_part_size / entry_size);
+
+		entry_count = AMP_MIN(entry_count, left_entry_count);
+
+		if (entry_count > 0)
+		{
+			uint8_t *chunk_offsets = new uint8_t[(size_t)entry_count*entry_size];
+			if ((actual_read_size = fread(chunk_offsets, 1, (size_t)entry_count*entry_size, fp)) != (size_t)entry_count*entry_size)
+			{
+				delete[] chunk_offsets;
+				printf("[MP4] Failed to read %" PRIu32 " bytes for 'stco' and 'co64' box.\n", entry_count*entry_size);
+				return RET_CODE_ERROR;
+			}
+
+			for (uint32_t i = 0; i < entry_count; i++)
+			{
+				if (box_type == 'stco')
+				{
+					uint32_t chunk_offset = ((uint32_t)chunk_offsets[i*entry_size] << 24) | ((uint32_t)chunk_offsets[i*entry_size + 1] << 16) |
+						((uint32_t)chunk_offsets[i*entry_size + 2] << 8) | (uint32_t)chunk_offsets[i*entry_size + 3];
+					if ((uint64_t)chunk_offset < nMDATShift)
+					{
+						printf("[MP4] the original chunk offset: %" PRIu32 " seems not to be correct.\n", chunk_offset);
+						chunk_offset = 0;
+					}
+					else
+						chunk_offset -= (uint32_t)nMDATShift;
+
+					chunk_offsets[i*entry_size] = (chunk_offset >> 24) & 0xFF;
+					chunk_offsets[i*entry_size + 1] = (chunk_offset >> 16) & 0xFF;
+					chunk_offsets[i*entry_size + 2] = (chunk_offset >>  8) & 0xFF;
+					chunk_offsets[i*entry_size + 3] = (chunk_offset) & 0xFF;
+				}
+				else if (box_type == 'co64')
+				{
+					uint64_t chunk_offset = ((uint64_t)chunk_offsets[i*entry_size] << 56) | 
+						((uint64_t)chunk_offsets[i*entry_size + 1] << 48) |
+						((uint64_t)chunk_offsets[i*entry_size + 2] << 40) | 
+						((uint64_t)chunk_offsets[i*entry_size + 3] << 32) |
+						((uint64_t)chunk_offsets[i*entry_size + 4] << 24) |
+						((uint64_t)chunk_offsets[i*entry_size + 5] << 16) |
+						((uint64_t)chunk_offsets[i*entry_size + 6] <<  8) |
+						((uint32_t)chunk_offsets[i*entry_size + 7]);
+					if (chunk_offset < nMDATShift)
+					{
+						chunk_offset = 0;
+						printf("[MP4] the original chunk offset: %" PRIu64 " seems not to be correct.\n", chunk_offset);
+					}
+					else
+						chunk_offset -= nMDATShift;
+
+					chunk_offsets[i*entry_size] = (chunk_offset >> 56) & 0xFF;
+					chunk_offsets[i*entry_size + 1] = (chunk_offset >> 48) & 0xFF;
+					chunk_offsets[i*entry_size + 2] = (chunk_offset >> 40) & 0xFF;
+					chunk_offsets[i*entry_size + 3] = (chunk_offset >> 32) & 0xFF;
+					chunk_offsets[i*entry_size + 4] = (chunk_offset >> 24) & 0xFF;
+					chunk_offsets[i*entry_size + 5] = (chunk_offset >> 16) & 0xFF;
+					chunk_offsets[i*entry_size + 6] = (chunk_offset >>  8) & 0xFF;
+					chunk_offsets[i*entry_size + 7] = (chunk_offset) & 0xFF;
+				}
+			}
+
+			if (fwrite(chunk_offsets, 1, (size_t)entry_count*entry_size, fw) != (size_t)entry_count*entry_size)
+			{
+				delete[] chunk_offsets;
+				return RET_CODE_ERROR;
+			}
+
+			delete[] chunk_offsets;
+		}
+
+		box_part_size = (left_entry_count > entry_count) ? (left_entry_count - entry_count)*entry_size : 0;
+	}
+
+	while (box_part_size > 0)
+	{
+		size_t actual_read_size = 0UL;
+		size_t read_size = (size_t)AMP_MIN(box_part_size, 2048);
+		if ((actual_read_size = fread(buf, 1, read_size, fp)) != read_size)
+		{
+			if (!feof(fp))
+				return RET_CODE_ERROR;
+			else
+				box_part_size = 0;	// exit the loop from the next round
+		}
+
+		if (fwrite(buf, 1, actual_read_size, fw) != actual_read_size)
+			return RET_CODE_ERROR;
+
+		if (box_part_size >= actual_read_size)
+			box_part_size -= actual_read_size;
+		else if (box_part_size != 0)
+			return RET_CODE_ERROR;	// Should never happen
+	}
+
+	return RET_CODE_SUCCESS;
+}
+
+/*!	@brief Fill the box slices
+	@retval 0 No slice is filled
+	@retval 1 Available slice(s) are filled
+	@retval 2 Available slice(s) are filled, and there are the son children to be a removed box
+*/
+int FillBoxSlices(Box* cur_box, BoxSlices& box_slices, const std::set<uint32_t>& remove_box_types)
+{
+	if (cur_box == nullptr)
+		return 0;
+
+	int iRet = 1;
+	bool bHeaderPart = true;
+	uint64_t src_start_pos = cur_box->start_bitpos >> 3;
+	uint64_t real_box_size = cur_box->size == 0 ? UINT64_MAX : cur_box->size;
+
+	Box* child = cur_box->first_child;
+	if (child == nullptr)
+	{
+		// No child, copy this box directly
+		box_slices.push_back({ cur_box, bHeaderPart, cur_box->start_bitpos>>3, real_box_size });
+		return 1;
+	}
+
+	uint64_t last_box_end_pos = src_start_pos;
+	for (; child != nullptr; child = child->next_sibling)
+	{
+		if (remove_box_types.find(child->type) != remove_box_types.end())
+		{
+			// Decrease its parents' size by its own size
+			Box* pParent = child->container;
+			while (pParent != nullptr)
+			{
+				if (pParent->container == nullptr)
+					break;
+
+				if (pParent->size > child->size)
+					pParent->size -= child->size;
+
+				pParent = pParent->container;
+			}
+
+			// This box is to be removed
+			if ((child->start_bitpos >> 3) > last_box_end_pos)
+			{
+				box_slices.push_back({ cur_box, bHeaderPart, last_box_end_pos, (child->start_bitpos >> 3) - last_box_end_pos });
+				bHeaderPart = false;
+			}
+
+			last_box_end_pos = child->size == 0 ? UINT64_MAX : ((child->start_bitpos >> 3) + child->size);
+			iRet = 2;
+
+			if (child->size == 0)	// The removed box extend to the file end
+				break;
+
+			continue;
+		}
+
+		if (last_box_end_pos != UINT64_MAX && last_box_end_pos < (child->start_bitpos >> 3))
+		{
+			box_slices.push_back({ cur_box, bHeaderPart, last_box_end_pos, (child->start_bitpos >> 3) - last_box_end_pos });
+			last_box_end_pos = (child->start_bitpos >> 3);
+			bHeaderPart = false;
+		}
+
+		last_box_end_pos = child->size == 0 ? UINT64_MAX : ((child->start_bitpos >> 3) + child->size);
+
+		// child->size may be changed in this procedure
+		if (FillBoxSlices(child, box_slices, remove_box_types) == 2)
+			iRet = 2;
+
+		if (child->size == 0)
+			break;
+	}
+	
+	if (last_box_end_pos != UINT64_MAX)
+	{
+		if (cur_box->size == 0)
+			box_slices.push_back({ cur_box, bHeaderPart, last_box_end_pos, UINT64_MAX });
+		else if (last_box_end_pos < src_start_pos + cur_box->size)
+			box_slices.push_back({ cur_box, bHeaderPart, last_box_end_pos, (src_start_pos + cur_box->size) - last_box_end_pos });
+	}
+
+	return iRet;
+}
+
 int ListBoxes(FILE* fp, int level, int64_t start_pos, int64_t end_pos, MP4_Boxes_Layout* box_layouts=NULL, int32_t verbose=0)
 {
 	int iRet = 0;
@@ -154,10 +406,10 @@ int ListBoxes(FILE* fp, int level, int64_t start_pos, int64_t end_pos, MP4_Boxes
 	uint16_t used_size = 0;
 	memset(uuid_str, 0, sizeof(uuid_str));
 
-	if (_fseeki64(fp, start_pos, SEEK_SET) != 0)
+	if (_fseeki64(fp, start_pos, SEEK_SET) != 0 || feof(fp) || start_pos >= end_pos)
 		return 0;
 
-	if (fread_s(box_header, sizeof(box_header), 1, sizeof(box_header), fp) < sizeof(box_header))
+	if (fread_s(box_header, sizeof(box_header), 1U, sizeof(box_header), fp) < sizeof(box_header))
 		return -1;
 
 	 int64_t box_size = ENDIANULONG(*(uint32_t*)(&box_header[0]));
@@ -166,7 +418,7 @@ int ListBoxes(FILE* fp, int level, int64_t start_pos, int64_t end_pos, MP4_Boxes
 
 	if (box_size == 1)
 	{
-		if (fread_s(box_header, sizeof(box_header), 1, sizeof(box_header), fp) < sizeof(box_header))
+		if (fread_s(box_header, sizeof(box_header), 1U, sizeof(box_header), fp) < sizeof(box_header))
 			return -1;
 
 		box_size = ENDIANUINT64(*(uint64_t*)(&box_header[0]));
@@ -175,7 +427,7 @@ int ListBoxes(FILE* fp, int level, int64_t start_pos, int64_t end_pos, MP4_Boxes
 
 	if (box_type == 'uuid')
 	{
-		if (fread_s(uuid_str, sizeof(uuid_str), 1, sizeof(uuid_str), fp) < sizeof(uuid_str))
+		if (fread_s(uuid_str, sizeof(uuid_str), 1U, sizeof(uuid_str), fp) < sizeof(uuid_str))
 			return -1;
 
 		used_size += sizeof(uuid_str);
@@ -190,11 +442,11 @@ int ListBoxes(FILE* fp, int level, int64_t start_pos, int64_t end_pos, MP4_Boxes
 		for (int i = 0; i < level; i++)
 			printf("\t");
 		if (box_type == 'uuid')
-			printf("uuid[%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X], size: %lld\r\n",
+			printf("uuid[%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X], size: %" PRId64 "\n",
 				uuid_str[0x0], uuid_str[0x1], uuid_str[0x2], uuid_str[0x3], uuid_str[0x4], uuid_str[0x5], uuid_str[0x6], uuid_str[0x7],
 				uuid_str[0x8], uuid_str[0x9], uuid_str[0xa], uuid_str[0xb], uuid_str[0xc], uuid_str[0xd], uuid_str[0xe], uuid_str[0xf], box_size);
 		else
-			printf("%c%c%c%c, size: %lld\r\n", (box_type >> 24) & 0xFF, (box_type >> 16) & 0xFF, (box_type >> 8) & 0xFF, box_type & 0xFF, box_size);
+			printf("%c%c%c%c, size: %" PRId64 "\n", (box_type >> 24) & 0xFF, (box_type >> 16) & 0xFF, (box_type >> 8) & 0xFF, box_type & 0xFF, box_size);
 	}
 
 	uint8_t version = 0;
@@ -223,7 +475,7 @@ int ListBoxes(FILE* fp, int level, int64_t start_pos, int64_t end_pos, MP4_Boxes
 				return iRet;
 
 			uint8_t hdlr_buf[20];
-			if (fread_s(hdlr_buf, sizeof(hdlr_buf), 1, sizeof(hdlr_buf), fp) < sizeof(hdlr_buf))
+			if (fread_s(hdlr_buf, sizeof(hdlr_buf), 1U, sizeof(hdlr_buf), fp) < sizeof(hdlr_buf))
 				return -1;
 		}
 		break;
@@ -240,50 +492,27 @@ int ListBoxes(FILE* fp, int level, int64_t start_pos, int64_t end_pos, MP4_Boxes
 	return ListBoxes(fp, level, start_pos, end_pos, box_layouts, verbose);
 }
 
-int RefineMP4File(const std::string& src_filename, const std::string& dst_filename, std::map<uint32_t, bool>& removed_box_types)
+int RemoveBoxes(FILE* fp, FILE* fw, std::set<uint32_t>& removed_box_types)
 {
 	using FILE_SLICE = std::tuple<int64_t/*start_pos*/, int64_t/*end_pos*/>;
 
-	int iRet = -1;
+	int iRet = RET_CODE_ERROR;
 	uint8_t* buf = NULL;
-	std::string write_pathname;
+	size_t cache_size = 4096;
+	int64_t s = 0, /*e = 0, */file_size;
+
+	// Get file size
+	_fseeki64(fp, 0, SEEK_END);
+	file_size = _ftelli64(fp);
+	_fseeki64(fp, 0, SEEK_SET);
+
 	MP4_Boxes_Layout mp4_boxes_layout;
 	std::vector<FILE_SLICE> holes;
 	std::vector<FILE_SLICE> merged_holes;
 	std::tuple<int64_t, int64_t> prev_hole = { 0, 0 };
 	std::vector<FILE_SLICE> file_copy_slices;
+
 	// At first visit all boxes in MP4 file, and generated a table of boxes
-
-	FILE* fp = NULL, *fw = NULL;
-	errno_t errn = fopen_s(&fp, src_filename.c_str(), "rb");
-	if (errn != 0 || fp == NULL)
-	{
-		printf("Failed to open the file: %s {errno: %d}.\r\n", src_filename.c_str(), errn);
-		goto done;
-	}
-
-	// Get file size
-	_fseeki64(fp, 0, SEEK_END);
-	int64_t file_size = _ftelli64(fp);
-	_fseeki64(fp, 0, SEEK_SET);
-
-	if (src_filename == dst_filename)
-	{
-		std::hash<std::string> hasher;
-		size_t hash_val = hasher(src_filename);
-		write_pathname += src_filename;
-		write_pathname += "~";
-		write_pathname += std::to_string(hash_val);
-
-		if (_access(write_pathname.c_str(), 0) == 0)
-		{
-			printf("Can't create a temporary file path to refine the original MP4 file.\r\n");
-			goto done;
-		}			
-	}
-	else
-		write_pathname = dst_filename;
-
 	if ((iRet = ListBoxes(fp, 0, 0, file_size, &mp4_boxes_layout, 0)) == -1)
 	{
 		goto done;
@@ -291,7 +520,7 @@ int RefineMP4File(const std::string& src_filename, const std::string& dst_filena
 
 	if (mp4_boxes_layout.size() <= 0)
 	{
-		printf("No box can be found.\r\n");
+		printf("No box can be found.\n");
 		goto done;
 	}
 
@@ -300,7 +529,7 @@ int RefineMP4File(const std::string& src_filename, const std::string& dst_filena
 	{
 		uint32_t box_type = std::get<0>(box);
 		if (removed_box_types.find(box_type) != removed_box_types.end())
-			holes.push_back({std::get<1>(box), std::get<2>(box)});
+			holes.push_back({ std::get<1>(box), std::get<2>(box) });
 	}
 
 	/* Merge the holes in the original file */
@@ -339,27 +568,18 @@ int RefineMP4File(const std::string& src_filename, const std::string& dst_filena
 		goto done;
 	}
 
-	errn = fopen_s(&fw, write_pathname.c_str(), "wb");
-	if (errn != 0 || fw == NULL)
-	{
-		printf("Failed to open the file: %s {errno: %d}.\r\n", write_pathname.c_str(), errn);
-		goto done;
-	}
-
 	// generate the copy slice
-	int64_t s = 0, e = 0;
 	for (auto hole : merged_holes)
 	{
 		if (s != std::get<0>(hole))
 			file_copy_slices.push_back({ s, std::get<0>(hole) });
-	
+
 		s = std::get<1>(hole);
 	}
 
 	if (s < file_size)
-		file_copy_slices.push_back({s, file_size});
-	
-	const size_t cache_size = 4096;
+		file_copy_slices.push_back({ s, file_size });
+
 	buf = new uint8_t[cache_size];
 	// begin to copy the data byte-2-byte
 	for (auto slice : file_copy_slices)
@@ -368,7 +588,7 @@ int RefineMP4File(const std::string& src_filename, const std::string& dst_filena
 		size_t cbLeft = (size_t)(std::get<1>(slice) - std::get<0>(slice));
 		size_t cbRead = 0;
 		while (cbLeft > 0) {
-			if ((cbRead = fread_s(buf, cache_size, 1, AMP_MIN(cache_size, cbLeft), fp)) <= 0)
+			if ((cbRead = fread_s(buf, cache_size, 1U, AMP_MIN(cache_size, cbLeft), fp)) <= 0)
 			{
 				iRet = -1;
 				break;
@@ -387,29 +607,170 @@ int RefineMP4File(const std::string& src_filename, const std::string& dst_filena
 			break;
 	}
 
-	if (fp != NULL)
-	{
-		fclose(fp); fp = NULL;
-	}
+	iRet = RET_CODE_SUCCESS;
 
-	if (fw != NULL)
-	{
-		fclose(fw); fw = NULL;
-	}
+done:
+	if (buf != NULL)
+		delete[] buf;
 
-	if (write_pathname != dst_filename)
-	{
-		if (_access(dst_filename.c_str(), 0) == 0)
-			_unlink(dst_filename.c_str());
+	return iRet;
+}
 
-		if (rename(write_pathname.c_str(), dst_filename.c_str()) != 0)
+int RefineMP4File(Box* root_box, const std::string& src_filename, const std::string& dst_filename, std::set<uint32_t>& removed_box_types)
+{
+	int iRet = -1;
+	errno_t errn;
+	std::string write_pathname;
+	FILE *fp = nullptr, *fw = nullptr;
+	if (src_filename == dst_filename)
+	{
+		std::hash<std::string> hasher;
+		size_t hash_val = hasher(src_filename);
+		write_pathname += src_filename;
+		write_pathname += "_";
+		write_pathname += std::to_string(hash_val);
+
+		if (_access(write_pathname.c_str(), F_OK) == 0)
 		{
-			printf("Failed to rename the file: %s to the file: %s.\r\n", write_pathname.c_str(), dst_filename.c_str());
-			goto done;
+			// Try to find another temporary swap file
+			unsigned int itries = 0;
+			while (itries < INT8_MAX)
+			{
+				std::string new_write_pathnmae = write_pathname + "_" + std::to_string(itries);
+				if (_access(new_write_pathnmae.c_str(), F_OK) != 0)
+				{
+					write_pathname = new_write_pathnmae;
+					break;
+				}
+
+				itries++;
+			}
+			
+			if (itries >= INT8_MAX)
+			{
+				printf("Can't find a temporary file to refine the original MP4 file.\n");
+				goto done;
+			}
+		}			
+	}
+	else
+		write_pathname = dst_filename;
+
+	errn = fopen_s(&fp, src_filename.c_str(), "rb");
+	if (errn != 0 || fp == NULL)
+	{
+		printf("Failed to open the file: %s {errno: %d}.\n", src_filename.c_str(), errn);
+		goto done;
+	}
+
+	errn = fopen_s(&fw, write_pathname.c_str(), "wb");
+	if (errn != 0 || fw == NULL)
+	{
+		printf("Failed to open the file: %s {errno: %d}.\n", write_pathname.c_str(), errn);
+		goto done;
+	}
+
+	if (root_box != nullptr)
+	{
+		BoxSlices box_slices;
+		bool bBoxRemoved = false;
+		uint64_t nMDATChunkShiftAhead = 0;
+		Box* pChild = root_box->first_child;
+		while (pChild != nullptr)
+		{
+			if (removed_box_types.find(pChild->type) != removed_box_types.end())
+			{
+				bBoxRemoved = true;
+				pChild = pChild->next_sibling;
+				continue;
+			}
+			
+			if (FillBoxSlices(pChild, box_slices, removed_box_types) == 2)
+				bBoxRemoved = true;
+
+			pChild = pChild->next_sibling;
+		}
+
+		// Find 'mdat' chunk is shifted or not
+		uint64_t nPostMDATChunkOffset = 0;
+		for (auto& slice : box_slices)
+		{
+			Box* ptr_cur_box = std::get<0>(slice);
+			if (ptr_cur_box == nullptr)
+				continue;
+
+			bool header_part = std::get<1>(slice);
+			uint64_t box_part_offset = std::get<2>(slice);
+			uint64_t box_part_size = std::get<3>(slice);
+
+			if (g_verbose_level >= 99)
+			{
+				printf("[MP4] '%c%c%c%c', header_part: %d, offset: %" PRIu64 ", size: %" PRIu64 ".\n",
+					(ptr_cur_box->type >> 24) & 0xFF, (ptr_cur_box->type >> 16) & 0xFF, (ptr_cur_box->type >> 8) & 0xFF, ptr_cur_box->type & 0xFF,
+					header_part, box_part_offset, box_part_size);
+			}
+
+			if (ptr_cur_box->type == 'mdat' && header_part)
+			{
+				if ((ptr_cur_box->start_bitpos >> 3) > nPostMDATChunkOffset)
+				{
+					nMDATChunkShiftAhead = (ptr_cur_box->start_bitpos >> 3) - nPostMDATChunkOffset;
+					printf("[MP4] The 'mdat' chunk is shift ahead %" PRIu64 " bytes.\n", nMDATChunkShiftAhead);
+				}
+				break;
+			}
+
+			nPostMDATChunkOffset += box_part_size;
+		}
+
+		if (!bBoxRemoved)
+			printf("The specified box-type(s) are not found in the current ISOBMFF file.\n");
+		else
+		{
+			for (auto& slice : box_slices)
+			{
+				if ((iRet = FlushBoxSlice(slice, fp, fw, nMDATChunkShiftAhead)) < 0)
+					break;
+			}
 		}
 	}
+	else
+		iRet = RemoveBoxes(fp, fw, removed_box_types);
 
-	iRet = 0;
+	if (fp != NULL) {
+		fclose(fp); fp = nullptr;
+	}
+
+	if (fw != NULL) {
+		fclose(fw); fw = nullptr;
+	}
+
+	if (iRet >= 0)
+	{
+		if (write_pathname != dst_filename)
+		{
+			if (_access(dst_filename.c_str(), F_OK) == 0)
+			{
+				if (_unlink(dst_filename.c_str()) == 0)
+				{
+					if (rename(write_pathname.c_str(), dst_filename.c_str()) != 0)
+					{
+						printf("Failed to rename the file: %s to the file: %s.\n", write_pathname.c_str(), dst_filename.c_str());
+						goto done;
+					}
+				}
+				else
+					printf("Failed to delete the destination file \"%s\" to rename the intermediate file to the destination file.\n", dst_filename.c_str());
+			}
+		}
+	}
+	else
+	{
+		// Remove the temporary file
+		printf("Failed to remove the boxes, delete the temporary file: %s.\n", write_pathname.c_str());
+		if (_unlink(write_pathname.c_str()) != 0)
+			printf("Failed to remove the temporary immediate filename: %s.\n", write_pathname.c_str());
+	}
 
 done:
 	if (fp != NULL)
@@ -418,18 +779,15 @@ done:
 	if (fw != NULL)
 		fclose(fw);
 
-	if (buf != NULL)
-		delete[] buf;
-
 	return iRet;
 }
 
 void PrintTree(Box* ptr_box, int level)
 {
-	if (ptr_box == nullptr)
+	if (ptr_box == nullptr || level < 0)
 		return;
 
-	size_t line_chars = level * 5 + 128;
+	size_t line_chars = (size_t)level * 5 + 128;
 	char* szLine = new char[line_chars];
 	memset(szLine, ' ', line_chars);
 	
@@ -440,27 +798,27 @@ void PrintTree(Box* ptr_box, int level)
 	if (level >= 1)
 	{
 		Box* ptr_parent = ptr_box->container;
-		memcpy(szLine + indent + (level - 1)*level_span, "|--", 3);
+		memcpy(szLine + indent + ((ptrdiff_t)level - 1)*level_span, "|--", 3);
 		for (int i = level - 2; i >= 0 && ptr_parent != nullptr; i--)
 		{
 			if (ptr_parent->next_sibling != nullptr)
-				memcpy(szLine + indent + i*level_span, "|", 1);
+				memcpy(szLine + indent + (ptrdiff_t)i*level_span, "|", 1);
 			ptr_parent = ptr_parent->container;
 		}
-		szText = szLine + indent + 3 + (level - 1)*level_span;
+		szText = szLine + indent + 3 + ((ptrdiff_t)level - 1)*level_span;
 	}
 	else
 		szText = szLine + indent;
 
 	if (ptr_box->container == nullptr)
-		sprintf_s(szText, line_chars - (szText - szLine), ".\r\n");
+		sprintf_s(szText, line_chars - (szText - szLine), ".\n");
 	else
 	{
 		int cbWritten = 0;
 		if (ptr_box->type == 'uuid')
 		{
 			auto ptr_uuid_box = (UUIDBox*)ptr_box;
-			cbWritten += sprintf_s(szText, line_chars - (szText - szLine), "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X (size: %lld)\r\n",
+			cbWritten += sprintf_s(szText, line_chars - (szText - szLine), "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X (size: %" PRId64 ")\n",
 				ptr_uuid_box->usertype[0x0], ptr_uuid_box->usertype[0x1], ptr_uuid_box->usertype[0x2], ptr_uuid_box->usertype[0x3],
 				ptr_uuid_box->usertype[0x4], ptr_uuid_box->usertype[0x5], ptr_uuid_box->usertype[0x6], ptr_uuid_box->usertype[0x7],
 				ptr_uuid_box->usertype[0x8], ptr_uuid_box->usertype[0x9], ptr_uuid_box->usertype[0xa], ptr_uuid_box->usertype[0xb],
@@ -469,7 +827,7 @@ void PrintTree(Box* ptr_box, int level)
 		}
 		else
 		{
-			cbWritten += CopyBoxTypeName(szText, line_chars - (szText - szLine), ptr_box->type);
+			cbWritten += CopyBoxTypeName(szText, (int)(line_chars - (szText - szLine)), ptr_box->type);
 		}
 		szText += cbWritten;
 
@@ -488,7 +846,7 @@ void PrintTree(Box* ptr_box, int level)
 					MovieBox::MovieHeaderBox* ptr_moviehdr = ptr_moviebox->movie_header_box;
 					uint32_t timescale = ptr_moviehdr->version == 1 ? ptr_moviehdr->v1.timescale : ptr_moviehdr->v0.timescale;
 
-					cbWritten = sprintf_s(szText, line_chars - (szText - szLine), " -- track_ID: %d, duration: %llu.%03llus",
+					cbWritten = sprintf_s(szText, line_chars - (szText - szLine), " -- track_ID: %d, duration: %" PRIu64 ".%03" PRIu64 "s",
 						track_ID, duration / timescale, duration*1000/timescale%1000);
 				}
 				else
@@ -517,18 +875,18 @@ void PrintTree(Box* ptr_box, int level)
 		if (ptr_box->type == 'tfdt')
 		{
 			auto ptr_tfdt_box = (MovieFragmentBox::TrackFragmentBox::TrackFragmentBaseMediaDecodeTimeBox*)ptr_box;
-			cbWritten = sprintf_s(szText, line_chars - (szText - szLine), " -- baseMediaDecodeTime: %llu", ptr_tfdt_box->baseMediaDecodeTime);
+			cbWritten = sprintf_s(szText, line_chars - (szText - szLine), " -- baseMediaDecodeTime: %" PRIu64 "", ptr_tfdt_box->baseMediaDecodeTime);
 			szText += cbWritten;
 		}
 
 		if (ptr_box->type == 'trun')
 		{
 			auto ptr_trun_box = (MovieFragmentBox::TrackFragmentBox::TrackRunBox*)ptr_box;
-			cbWritten = sprintf_s(szText, line_chars - (szText - szLine), " -- SampleCount: %lu", ptr_trun_box->sample_count);
+			cbWritten = sprintf_s(szText, line_chars - (szText - szLine), " -- SampleCount: %" PRIu32 "", ptr_trun_box->sample_count);
 			szText += cbWritten;
 			if (ptr_trun_box->flags & 0x000001)
 			{
-				cbWritten = sprintf_s(szText, line_chars - (szText - szLine), ", data offset: %ld", ptr_trun_box->data_offset);
+				cbWritten = sprintf_s(szText, line_chars - (szText - szLine), ", data offset: %" PRId32 "", ptr_trun_box->data_offset);
 				szText += cbWritten;
 			}
 		}
@@ -576,7 +934,7 @@ void PrintTree(Box* ptr_box, int level)
 							}
 							else
 							{
-								szText += CopyBoxTypeName(szText, line_chars - (szText - szLine), ptrVisualSampleEntry->type);
+								szText += CopyBoxTypeName(szText, (int)(line_chars - (szText - szLine)), ptrVisualSampleEntry->type);
 							}
 
 							cbWritten = sprintf_s(szText, line_chars - (szText - szLine), "@%dx%d", ptrVisualSampleEntry->width, ptrVisualSampleEntry->height);
@@ -590,10 +948,10 @@ void PrintTree(Box* ptr_box, int level)
 								*(szText++) = ',';
 							else
 							{
-								cbWritten = sprintf_s(szText, line_chars - (szText - szLine), " -- ");
+								cbWritten = sprintf_s(szText, (int)(line_chars - (szText - szLine)), " -- ");
 								szText += cbWritten;
 							}
-							szText += CopyBoxTypeName(szText, line_chars - (szText - szLine), ptrAudioSampleEntry->type);
+							szText += CopyBoxTypeName(szText, (int)(line_chars - (szText - szLine)), ptrAudioSampleEntry->type);
 							szText += sprintf_s(szText, line_chars - (szText - szLine), "@%dHZ", ptrAudioSampleEntry->samplerate >> 16);
 						}
 					}
@@ -601,10 +959,10 @@ void PrintTree(Box* ptr_box, int level)
 			}
 		}
 
-		sprintf_s(szText, line_chars - (szText - szLine), "\r\n");
+		sprintf_s(szText, line_chars - (szText - szLine), "\n");
 	}
 
-	printf(szLine);
+	printf("%s", szLine);
 
 	delete[] szLine;
 
@@ -616,6 +974,56 @@ void PrintTree(Box* ptr_box, int level)
 	}
 
 	return;
+}
+
+Box* FindBox(Box* ptr_box, std::string strBoxPath)
+{
+	URI_Components box_uri;
+	int nRet = AMURI_Split(strBoxPath.c_str(), box_uri);
+
+	if (AMP_FAILED(nRet))
+		return nullptr;
+
+	if (box_uri.Ranges[URI_COMPONENT_PATH].IsEmpty())
+		return nullptr;
+
+	std::vector<URI_Segment> component_segments;
+	if (AMP_FAILED(AMURI_SplitComponent(strBoxPath.c_str() + box_uri.Ranges[URI_COMPONENT_PATH].start, box_uri.Ranges[URI_COMPONENT_PATH].length, component_segments)))
+		return nullptr;
+
+	for (auto& seg : component_segments)
+	{
+		int64_t idx = INT64_MAX;
+		std::string strBoxSeg;
+		if (AMP_FAILED(AMURI_DecodeSegment(strBoxPath.c_str() + seg.start, seg.length, strBoxSeg)))
+			return nullptr;
+
+		const char* p = strBoxSeg.c_str();
+		if (strBoxSeg.length() > 4)
+			ConvertToInt((char*)p + 4, (char*)p + strBoxSeg.length(), idx);
+		else if (strBoxSeg.length() < 4)
+			return nullptr;
+
+		int found_idx = -1;
+		uint32_t seg_box_type = ((uint32_t)(*p) << 24) | ((uint32_t)(*(p + 1)) << 16) | ((uint32_t)(*(p + 2)) << 8) | *(p + 3);
+		for (auto child = ptr_box->first_child; child != nullptr; child = child->next_sibling)
+		{
+			if (child->type == seg_box_type)
+			{
+				found_idx++;
+				if (idx == found_idx || idx == INT64_MAX)
+				{
+					ptr_box = child;
+					break;
+				}
+			}
+		}
+
+		if (found_idx <= -1 || (idx != INT64_MAX && idx != found_idx))
+			return nullptr;
+	}
+
+	return ptr_box;
 }
 
 Box* FindBox(Box* ptr_box, uint32_t track_id, uint32_t box_type)
@@ -630,8 +1038,8 @@ Box* FindBox(Box* ptr_box, uint32_t track_id, uint32_t box_type)
 		{
 			// check its track-id
 			MovieBox::TrackBox::TrackHeaderBox* ptr_trackhdr_box = (MovieBox::TrackBox::TrackHeaderBox*)ptr_child_box;
-			if (ptr_trackhdr_box->version == 1 && ptr_trackhdr_box->v1.track_ID == track_id ||
-				ptr_trackhdr_box->version == 0 && ptr_trackhdr_box->v0.track_ID == track_id)
+			if((ptr_trackhdr_box->version == 1 && ptr_trackhdr_box->v1.track_ID == track_id) ||
+			   (ptr_trackhdr_box->version == 0 && ptr_trackhdr_box->v0.track_ID == track_id))
 			{
 				if (box_type != UINT32_MAX)
 					return FindBox(ptr_trackhdr_box->container, UINT32_MAX, box_type);
@@ -663,7 +1071,7 @@ int ShowBoxInfo(Box* root_box, Box* ptr_box)
 	errno_t errn = fopen_s(&fp, g_params["input"].c_str(), "rb");
 	if (errn != 0 || fp == NULL)
 	{
-		printf("Failed to open the file: %s {errno: %d}.\r\n", g_params["input"].c_str(), errn);
+		printf("Failed to open the file: %s {errno: %d}.\n", g_params["input"].c_str(), errn);
 		goto done;
 	}
 
@@ -680,7 +1088,11 @@ done:
 #else
 	if (g_params.find("trackid") == g_params.end() || ptr_box == nullptr)
 	{
-		PrintTree(root_box, 0);
+		if (ptr_box != nullptr)
+			PrintTree(ptr_box, 0);
+		else
+			PrintTree(root_box, 0);
+
 		return iRet;
 	}
 
@@ -699,7 +1111,7 @@ done:
 			printf("--Entry_ID-------First Chunk------Samples Per Chunk----Sample Description Index--\n");
 			for (uint32_t i = 0; i < pSampleToChunkBox->entry_infos.size(); i++)
 			{
-				printf("  #%06d     % 10d       % 10d      %10d\n", i+1, 
+				printf("  #%06" PRIu32 "     % 10d       % 10d      %10d\n", i+1,
 					pSampleToChunkBox->entry_infos[i].first_chunk, 
 					pSampleToChunkBox->entry_infos[i].samples_per_chunk, 
 					pSampleToChunkBox->entry_infos[i].sample_description_index);
@@ -714,7 +1126,7 @@ done:
 			printf("--- Chunk ID ------------- Chunk Offset --\n");
 			for (size_t i = 0; i < pChunkOffsetBox->chunk_offset.size(); i++)
 			{
-				printf(" #% -10d             % 10d\n", i+1, pChunkOffsetBox->chunk_offset[i]);
+				printf(" #%-10zu             %10d\n", i+1, pChunkOffsetBox->chunk_offset[i]);
 			}
 		}
 		else if (box_type == 'co64')
@@ -726,7 +1138,7 @@ done:
 			printf("--- Chunk ID ------------- Chunk Offset --\n");
 			for (size_t i = 0; i < pLargeChunkOffsetBox->chunk_offset.size(); i++)
 			{
-				printf(" #% -10d             % 10lld\n", i+1, pLargeChunkOffsetBox->chunk_offset[i]);
+				printf(" #%-10zu             %10" PRIu64 "\n", i+1, pLargeChunkOffsetBox->chunk_offset[i]);
 			}
 		}
 		else if (box_type == 'stsz')
@@ -734,13 +1146,13 @@ done:
 			MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTableBox::SampleSizeBox* pSampleSizeBox =
 				(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTableBox::SampleSizeBox*)ptr_box;
 
-			printf("Default sample size: %lu\n", pSampleSizeBox->sample_size);
-			printf("The number of samples in the current track: %lu\n", pSampleSizeBox->sample_count);
+			printf("Default sample size: %" PRIu32 "\n", pSampleSizeBox->sample_size);
+			printf("The number of samples in the current track: %" PRIu32 "\n", pSampleSizeBox->sample_count);
 			if (pSampleSizeBox->sample_size == 0)
 			{
 				printf("-- Sample ID ------------- Sample Size --\n");
 				for (size_t i = 0; i < pSampleSizeBox->entry_size.size(); i++)
-					printf("  #% -10d            % 10d\n", i+1, pSampleSizeBox->entry_size[i]);
+					printf("  #%-10zu            % 10d\n", i+1, pSampleSizeBox->entry_size[i]);
 			}
 		}
 		else if (box_type == 'stsd')
@@ -754,7 +1166,7 @@ done:
 				for (size_t idx = 0; idx < cbBuf; idx++)
 				{
 					if (idx % 16 == 0)
-						printf("\t\t %03X  ", idx);
+						printf("\t\t %03zu  ", idx);
 
 					printf("%02X  ", pBuf[idx]);
 					if ((idx + 1) % 8 == 0)
@@ -789,7 +1201,7 @@ done:
 						printf("general_tier_flag: %d\n", config->HEVCConfig->general_tier_flag);
 						printf("general_profile_idc: %d\n", config->HEVCConfig->general_profile_idc);
 						printf("general_profile_compatibility_flags: 0X%X\n", config->HEVCConfig->general_profile_compatibility_flags);
-						printf("general_constraint_indicator_flags: 0X%llX\n", config->HEVCConfig->general_constraint_indicator_flags);
+						printf("general_constraint_indicator_flags: 0X%" PRIX64 "\n", config->HEVCConfig->general_constraint_indicator_flags);
 						printf("general_level_idc: %d\n", config->HEVCConfig->general_level_idc);
 						printf("min_spatial_segmentation_idc: %d\n", config->HEVCConfig->min_spatial_segmentation_idc);
 						printf("parallelismType: %d\n", config->HEVCConfig->parallelismType);
@@ -831,7 +1243,7 @@ done:
 
 						for (size_t i = 0; i < config->AVCConfig->numOfSequenceParameterSets; i++)
 						{
-							printf("\tSequenceParameterSet#%d (nalUnitLength: %d)\n", i, config->AVCConfig->sequenceParameterSetNALUnits[i]->nalUnitLength);
+							printf("\tSequenceParameterSet#%zu (nalUnitLength: %d)\n", i, config->AVCConfig->sequenceParameterSetNALUnits[i]->nalUnitLength);
 							PrintBinaryBuf(&config->AVCConfig->sequenceParameterSetNALUnits[i]->nalUnit[0], config->AVCConfig->sequenceParameterSetNALUnits[i]->nalUnit.size());
 						}
 
@@ -839,7 +1251,7 @@ done:
 
 						for (size_t i = 0; i < config->AVCConfig->numOfPictureParameterSets; i++)
 						{
-							printf("\tPictureParameterSet#%d (nalUnitLength: %d)\n", i, config->AVCConfig->pictureParameterSetNALUnits[i]->nalUnitLength);
+							printf("\tPictureParameterSet#%zu (nalUnitLength: %d)\n", i, config->AVCConfig->pictureParameterSetNALUnits[i]->nalUnitLength);
 							PrintBinaryBuf(&config->AVCConfig->pictureParameterSetNALUnits[i]->nalUnit[0], config->AVCConfig->pictureParameterSetNALUnits[i]->nalUnit.size());
 						}
 
@@ -853,7 +1265,7 @@ done:
 
 							for (size_t i = 0; i < config->AVCConfig->numOfSequenceParameterSetExt; i++)
 							{
-								printf("\tSequenceParameterSetExt#%d (nalUnitLength: %d)\n", i, config->AVCConfig->sequenceParameterSetExtNALUnits[i]->nalUnitLength);
+								printf("\tSequenceParameterSetExt#%zu (nalUnitLength: %d)\n", i, config->AVCConfig->sequenceParameterSetExtNALUnits[i]->nalUnitLength);
 								PrintBinaryBuf(&config->AVCConfig->sequenceParameterSetExtNALUnits[i]->nalUnit[0], config->AVCConfig->sequenceParameterSetExtNALUnits[i]->nalUnit.size());
 							}
 						}
@@ -874,7 +1286,7 @@ done:
 				printf("== Sample ID === Leading ===== Depends On ==== Depended On ==== Redundancy ==\n");
 				for (uint32_t i = 0; i < sample_count; i++)
 				{
-					printf("   #% -10d      %d         %s        %s         %s\n", 
+					printf("   #%-10" PRIu32 "      %d         %s        %s         %s\n",
 						i+1,
 						pSampleDepTypeBox->entries[i].is_leading,
 						pSampleDepTypeBox->entries[i].sample_depends_on == 1 ? "Non-I-Frame" : (pSampleDepTypeBox->entries[i].sample_depends_on == 2 ? "    I-Frame" : "    Unknown"),
@@ -887,14 +1299,14 @@ done:
 		{
 			MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTableBox::CompositionOffsetBox* pCompositionOffsetBox =
 				(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTableBox::CompositionOffsetBox*)ptr_box;
-			printf("entry count: %lu\n", pCompositionOffsetBox->entry_count);
+			printf("entry count: %" PRIu32 "\n", pCompositionOffsetBox->entry_count);
 			printf("== Entry ID ===== Sample Count ========= Sample Offset ==\n");
-			for (uint32_t i = 0; i < pCompositionOffsetBox->entries.size(); i++)
+			for (size_t i = 0; i < pCompositionOffsetBox->entries.size(); i++)
 			{
 				if (pCompositionOffsetBox->version == 1)
-					printf("   #% -10lu      % -10lu            % -10d\n", i + 1, pCompositionOffsetBox->entries[i].v1.sample_count, pCompositionOffsetBox->entries[i].v1.sample_offset);
+					printf("   #%-10zu      %-10" PRIu32 "            %-10" PRId32 "\n", i + 1UL, pCompositionOffsetBox->entries[i].v1.sample_count, pCompositionOffsetBox->entries[i].v1.sample_offset);
 				else if (pCompositionOffsetBox->version == 0)
-					printf("   #% -10lu      % -10lu            % -10d\n", i + 1, pCompositionOffsetBox->entries[i].v0.sample_count, pCompositionOffsetBox->entries[i].v0.sample_offset);
+					printf("   #%-10zu      %-10" PRIu32 "            %-10" PRId32 "\n", i + 1UL, pCompositionOffsetBox->entries[i].v0.sample_count, pCompositionOffsetBox->entries[i].v0.sample_offset);
 			}
 		}
 		else if (box_type == 'stts')
@@ -910,11 +1322,11 @@ done:
 
 			printf("entry count: %d\n", pTimeToSampleBox->entry_count);
 			printf("== Entry ID ===== Sample Count ========= Sample Delta ==\n");
-			for (uint32_t i = 0; i < pTimeToSampleBox->entries.size(); i++)
+			for (size_t i = 0; i < pTimeToSampleBox->entries.size(); i++)
 				if (timescale == 0)
-					printf("  #% -10lu      % -10lu          % 10lu\n", i + 1, pTimeToSampleBox->entries[i].sample_count, pTimeToSampleBox->entries[i].sample_delta);
+					printf("  #%-10zu      %-10" PRIu32 "          %10" PRIu32 "\n", i + 1UL, pTimeToSampleBox->entries[i].sample_count, pTimeToSampleBox->entries[i].sample_delta);
 				else
-					printf("  #% -10lu      % -10lu          % 10lu(%d.%03ds)\n", i + 1, pTimeToSampleBox->entries[i].sample_count, pTimeToSampleBox->entries[i].sample_delta,
+					printf("  #%-10zu      %-10" PRIu32 "          %10" PRIu32 "(%" PRIu32 ".%03" PRIu32 "s)\n", i + 1UL, pTimeToSampleBox->entries[i].sample_count, pTimeToSampleBox->entries[i].sample_delta,
 						pTimeToSampleBox->entries[i].sample_delta / timescale, pTimeToSampleBox->entries[i].sample_delta * 1000 / timescale % 1000);
 		}
 		else if (box_type == 'cslg')
@@ -932,10 +1344,10 @@ done:
 			MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTableBox::SyncSampleBox* pSyncSampleBox =
 				(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTableBox::SyncSampleBox*)ptr_box;
 
-			printf("entry_count: %lu\n", pSyncSampleBox->entry_count);
+			printf("entry_count: %" PRIu32 "\n", pSyncSampleBox->entry_count);
 			printf("== Entry ID ====== sample_number ===\n");
 			for (size_t i = 0; i < pSyncSampleBox->sample_numbers.size(); i++)
-				printf("   #% -10lu      % 10lu\n", i, pSyncSampleBox->sample_numbers[i]);
+				printf("   #%-10zu      %10" PRIu32 "\n", i, pSyncSampleBox->sample_numbers[i]);
 		}
 	}
 #endif
@@ -964,7 +1376,11 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 			if (pVisualSampleEntry == nullptr)
 				continue;
 
-			if (pVisualSampleEntry->type == 'hvc1' || pVisualSampleEntry->type == 'hev1' || pVisualSampleEntry->type == 'hvcC')
+			if (pVisualSampleEntry->type == 'av1C')
+			{
+
+			}
+			else if (pVisualSampleEntry->type == 'hvc1' || pVisualSampleEntry->type == 'hev1' || pVisualSampleEntry->type == 'hvcC')
 			{
 				auto pHEVCSampleEntry = (HEVCSampleEntry*)pVisualSampleEntry;
 				if (pHEVCSampleEntry != nullptr && pHEVCSampleEntry->config != nullptr)
@@ -992,10 +1408,14 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 				}
 			}
 		}
+		else if(pSampleDescBox->handler_type == 'soun')
+		{
+
+		}
 	}
 
 	if (g_verbose_level >= 1)
-		printf("Sample#% -8d, sample offset: % 10llu, sample size: % 10lu, key sample: %d\n", sample_id, sample_offset, sample_size, key_sample);
+		printf("Sample#%-8" PRIu32 ", sample offset: %10" PRIu64 ", sample size: %10" PRIu32 ", key sample: %d\n", sample_id, sample_offset, sample_size, key_sample);
 
 	if (pHEVCConfigurationBox != nullptr)
 	{
@@ -1018,7 +1438,7 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 
 		uint8_t buf[2048];
 		int64_t cbLeft = sample_size;
-		int8_t next_nal_unit_type = (int8_t)HEVC_NAL_UNIT_TYPE::VPS_NUT;
+		int8_t next_nal_unit_type = (int8_t)HEVC_VPS_NUT;
 		bool bFirstNALUnit = true;
 
 		auto write_nu_array = [&](int8_t nal_unit_type) {
@@ -1030,7 +1450,7 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 			{
 				if (fw != NULL)
 				{
-					if (nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::VPS_NUT || nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::SPS_NUT || nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PPS_NUT)
+					if (nal_unit_type == (int8_t)HEVC_VPS_NUT || nal_unit_type == (int8_t)HEVC_SPS_NUT || nal_unit_type == (int8_t)HEVC_PPS_NUT)
 						fwrite(four_bytes_start_prefixes, 1, 4, fw);
 					else
 						fwrite(three_bytes_start_prefixes, 1, 3, fw);
@@ -1050,11 +1470,13 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 		while (cbLeft > 0)
 		{
 			uint32_t NALUnitLength = 0;
-			fread(buf, 1, lengthSizeMinusOne + 1, fp);
+			if (fread(buf, 1, (size_t)lengthSizeMinusOne + 1UL, fp) != (size_t)lengthSizeMinusOne + 1UL)
+				break;
+
 			for (int i = 0; i < lengthSizeMinusOne + 1; i++)
 				NALUnitLength = (NALUnitLength << 8) | buf[i];
 
-			bool bLastNALUnit = cbLeft <= (lengthSizeMinusOne + 1 + NALUnitLength) ? true : false;
+			bool bLastNALUnit = cbLeft <= ((int64_t)lengthSizeMinusOne + 1 + NALUnitLength) ? true : false;
 
 			uint8_t first_leading_read_pos = 0;
 			if (key_sample && next_nal_unit_type != -1)
@@ -1068,31 +1490,31 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 				int8_t nal_unit_type = (buf[0] >> 1) & 0x3F;
 				int8_t nuh_layer_id = ((buf[0] & 0x01) << 5) | ((buf[1] >> 3) & 0x1F);
 				int8_t nuh_temporal_id_plus1 = buf[1] & 0x07;
-				if (nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::VPS_NUT || 
-					nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::SPS_NUT || 
-					nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PPS_NUT || 
-					nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PREFIX_SEI_NUT)
+				if (nal_unit_type == (int8_t)HEVC_VPS_NUT || 
+					nal_unit_type == (int8_t)HEVC_SPS_NUT || 
+					nal_unit_type == (int8_t)HEVC_PPS_NUT || 
+					nal_unit_type == (int8_t)HEVC_PREFIX_SEI_NUT)
 				{
 					for (int8_t i = next_nal_unit_type; i < nal_unit_type; i++)
 						write_nu_array(i);
 
-					next_nal_unit_type = (nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PPS_NUT) ? (int8_t)HEVC_NAL_UNIT_TYPE::PREFIX_SEI_NUT : (
-										  nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PREFIX_SEI_NUT? (int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT:(nal_unit_type + 1));
+					next_nal_unit_type = (nal_unit_type == (int8_t)HEVC_PPS_NUT) ? (int8_t)HEVC_PREFIX_SEI_NUT : (
+										  nal_unit_type == (int8_t)HEVC_PREFIX_SEI_NUT? (int8_t)HEVC_SUFFIX_SEI_NUT:(nal_unit_type + 1));
 				}
-				else if (nal_unit_type >= (int8_t)HEVC_NAL_UNIT_TYPE::TRAIL_N && nal_unit_type <= (int8_t)HEVC_NAL_UNIT_TYPE::RSV_VCL31)
+				else if (nal_unit_type >= (int8_t)HEVC_TRAIL_N && nal_unit_type <= (int8_t)HEVC_RSV_VCL31)
 				{
-					for (int8_t i = next_nal_unit_type; i <= (int8_t)HEVC_NAL_UNIT_TYPE::PREFIX_SEI_NUT; i++)
+					for (int8_t i = next_nal_unit_type; i <= (int8_t)HEVC_PREFIX_SEI_NUT; i++)
 						write_nu_array(i);
 
-					next_nal_unit_type = (int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT;
+					next_nal_unit_type = (int8_t)HEVC_SUFFIX_SEI_NUT;
 				}
 				else
 				{
-					if (nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT)
+					if (nal_unit_type == (int8_t)HEVC_SUFFIX_SEI_NUT)
 						next_nal_unit_type = -1;
 
-					if (next_nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT && bLastNALUnit)
-						write_nu_array((int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT);
+					if (next_nal_unit_type == (int8_t)HEVC_SUFFIX_SEI_NUT && bLastNALUnit)
+						write_nu_array((int8_t)HEVC_SUFFIX_SEI_NUT);
 				}
 			}
 
@@ -1109,17 +1531,17 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 			{
 				uint32_t nCpyCnt = AMP_MIN(2048UL - first_leading_read_pos, cbLeftNALUnit);
 
-				if ((nCpyCnt = fread(&buf[first_leading_read_pos], 1, nCpyCnt, fp)) == 0)
+				if ((nCpyCnt = (uint32_t)fread(&buf[first_leading_read_pos], 1, nCpyCnt, fp)) == 0)
 					break;
 
 				if (fw != NULL)
-					fwrite(buf, 1, nCpyCnt + first_leading_read_pos, fw);
+					fwrite(buf, 1, (size_t)nCpyCnt + first_leading_read_pos, fw);
 
 				cbLeftNALUnit -= nCpyCnt;
 				first_leading_read_pos = 0;
 			}
 
-			cbLeft -= lengthSizeMinusOne + 1 + NALUnitLength;
+			cbLeft -= (int64_t)lengthSizeMinusOne + 1 + NALUnitLength;
 			bFirstNALUnit = false;
 		}
 
@@ -1130,11 +1552,11 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 	{
 		uint8_t buf[2048];
 		int64_t cbLeft = sample_size;
-		int8_t next_nal_unit_type = (int8_t)AVC_NAL_UNIT_TYPE::SPS_NUT;
+		int8_t next_nal_unit_type = (int8_t)AVC_SPS_NUT;
 		bool bFirstNALUnit = true;
 
 		auto write_nu_array = [&](int8_t nal_unit_type) {
-			if (nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::SPS_NUT)
+			if (nal_unit_type == (int8_t)AVC_SPS_NUT)
 			{
 				for (size_t i = 0; i < pAVCConfigurationBox->AVCConfig->sequenceParameterSetNALUnits.size(); i++)
 				{
@@ -1147,7 +1569,7 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 				}
 				return true;
 			}
-			else if(nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::PPS_NUT)
+			else if(nal_unit_type == (int8_t)AVC_PPS_NUT)
 			{
 				for (size_t i = 0; i < pAVCConfigurationBox->AVCConfig->pictureParameterSetNALUnits.size(); i++)
 				{
@@ -1160,7 +1582,7 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 				}
 				return true;
 			}
-			else if (nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::SPS_EXT_NUT)
+			else if (nal_unit_type == (int8_t)AVC_SPS_EXT_NUT)
 			{
 				for (size_t i = 0; i < pAVCConfigurationBox->AVCConfig->sequenceParameterSetExtNALUnits.size(); i++)
 				{
@@ -1184,11 +1606,14 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 		while (cbLeft > 0)
 		{
 			uint32_t NALUnitLength = 0;
-			fread(buf, 1, lengthSizeMinusOne + 1, fp);
+			if (fread(buf, 1, (size_t)lengthSizeMinusOne + 1UL, fp) != (size_t)lengthSizeMinusOne + 1ULL)
+				break;
+
 			for (int i = 0; i < lengthSizeMinusOne + 1; i++)
 				NALUnitLength = (NALUnitLength << 8) | buf[i];
 
-			bool bLastNALUnit = cbLeft <= (lengthSizeMinusOne + 1 + NALUnitLength) ? true : false;
+			bool bLastNALUnit = cbLeft <= ((int64_t)lengthSizeMinusOne + 1 + NALUnitLength) ? true : false;
+			DBG_UNREFERENCED_LOCAL_VARIABLE(bLastNALUnit);
 
 			uint8_t first_leading_read_pos = 0;
 			if (key_sample && next_nal_unit_type != -1)
@@ -1199,27 +1624,27 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 
 				first_leading_read_pos = 1;
 
-				int8_t nal_ref_idc = (buf[0] >> 5) & 0x03;
+				int8_t nal_ref_idc = (buf[0] >> 5) & 0x03; DBG_UNREFERENCED_LOCAL_VARIABLE(nal_ref_idc);
 				int8_t nal_unit_type = buf[0] & 0x1F;
-				if (nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::SPS_NUT || nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::PPS_NUT)
+				if (nal_unit_type == (int8_t)AVC_SPS_NUT || nal_unit_type == (int8_t)AVC_PPS_NUT)
 				{
 					for (int8_t i = next_nal_unit_type; i < nal_unit_type; i++)
 						write_nu_array(i);
 
-					next_nal_unit_type = nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::PPS_NUT ? (int8_t)AVC_NAL_UNIT_TYPE::SPS_EXT_NUT : (nal_unit_type + 1);
+					next_nal_unit_type = nal_unit_type == (int8_t)AVC_PPS_NUT ? (int8_t)AVC_SPS_EXT_NUT : (nal_unit_type + 1);
 				}
 				else if (nal_unit_type >= 1 && nal_unit_type <= 5)
 				{
-					for (int8_t i = next_nal_unit_type; i <= (int8_t)AVC_NAL_UNIT_TYPE::SPS_EXT_NUT; i++)
+					for (int8_t i = next_nal_unit_type; i <= (int8_t)AVC_SPS_EXT_NUT; i++)
 						write_nu_array(i);
 					next_nal_unit_type = -1;
 				}
-				else if (nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::SEI_NUT)
+				else if (nal_unit_type == (int8_t)AVC_SEI_NUT)
 				{
-					for (int8_t i = next_nal_unit_type; i <= (int8_t)AVC_NAL_UNIT_TYPE::PPS_NUT; i++)
+					for (int8_t i = next_nal_unit_type; i <= (int8_t)AVC_PPS_NUT; i++)
 						write_nu_array(i);
 
-					next_nal_unit_type = (int8_t)AVC_NAL_UNIT_TYPE::SPS_EXT_NUT;
+					next_nal_unit_type = (int8_t)AVC_SPS_EXT_NUT;
 				}
 			}
 
@@ -1236,18 +1661,38 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 			{
 				uint32_t nCpyCnt = AMP_MIN(2048UL - first_leading_read_pos, cbLeftNALUnit);
 
-				if ((nCpyCnt = fread(&buf[first_leading_read_pos], 1, nCpyCnt, fp)) == 0)
+				if ((nCpyCnt = (uint32_t)fread(&buf[first_leading_read_pos], 1, nCpyCnt, fp)) == 0)
 					break;
 
 				if (fw != NULL)
-					fwrite(buf, 1, nCpyCnt + first_leading_read_pos, fw);
+					fwrite(buf, 1, (size_t)nCpyCnt + first_leading_read_pos, fw);
 
 				cbLeftNALUnit -= nCpyCnt;
 				first_leading_read_pos = 0;
 			}
 
-			cbLeft -= lengthSizeMinusOne + 1 + NALUnitLength;
+			cbLeft -= (int64_t)lengthSizeMinusOne + 1 + NALUnitLength;
 			bFirstNALUnit = false;
+		}
+
+		if (cbLeft == 0)
+			iRet = RET_CODE_SUCCESS;
+	}
+	else
+	{
+		uint8_t buf[2048];
+		int64_t cbLeft = sample_size;
+
+		while (cbLeft > 0)
+		{
+			size_t nCpyCnt = (size_t)AMP_MIN(2048, cbLeft);
+			if ((nCpyCnt = fread(buf, 1, nCpyCnt, fp)) == 0)
+				break;
+
+			if (fw != nullptr)
+				fwrite(buf, 1, nCpyCnt, fw);
+
+			cbLeft -= nCpyCnt;
 		}
 
 		if (cbLeft == 0)
@@ -1280,7 +1725,7 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id, FILE* f
 					if (v == nullptr)
 						continue;
 
-					ISOBMFF::MovieBox::TrackBox* ptr_trak_box = (ISOBMFF::MovieBox::TrackBox*)result[0];
+					BST::ISOBMFF::MovieBox::TrackBox* ptr_trak_box = (BST::ISOBMFF::MovieBox::TrackBox*)result[0];
 					if (ptr_trak_box->GetTrackID() == track_id)
 					{
 						// Try to find the 'stsd' box, and update the current null one
@@ -1293,6 +1738,9 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id, FILE* f
 				}
 			}
 		}
+
+		if (pSampleDescBox == nullptr)
+			printf("Can't find the track box with the specified track-id: %" PRIu32 ".\n", track_id);
 	}
 
 	int sample_id = 0;
@@ -1326,7 +1774,7 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id, FILE* f
 			}
 
 			// Begin to track the track elementary stream
-			uint32_t sequence_number = ptr_moof_box->movie_fragment_header_box->sequence_number;
+			/*uint32_t sequence_number = ptr_moof_box->movie_fragment_header_box->sequence_number;*/
 
 			auto GetTrunFileOffset = [&](MovieFragmentBox::TrackFragmentBox* ptr_traf_box,
 				MovieFragmentBox::TrackFragmentBox::TrackRunBox* ptr_trun_box,
@@ -1341,7 +1789,7 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id, FILE* f
 				bool trun_data_offset_exist = ptr_trun_box->flags & 0x000001;
 
 				// Make sure the file offset is decided
-				if (!traf_data_offset_exist &&	// No base_data_offset
+				if (!traf_data_offset_exist &&		// No base_data_offset
 					!trun_data_offset_exist)		// No data_offset in 'trun' box
 				{
 					// If no 'mdat' is found
@@ -1370,11 +1818,11 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id, FILE* f
 				return file_offset;
 			};
 
-			auto GetTrafFileOffset = [&](MovieFragmentBox::TrackFragmentBox* ptr_traf_box, uint64_t prev_data_end_offset) {
-				return GetTrunFileOffset(ptr_traf_box, ptr_traf_box->track_run_boxes.size() > 0 ? ptr_traf_box->track_run_boxes[0] : nullptr, prev_data_end_offset);
-			};
+			//auto GetTrafFileOffset = [&](MovieFragmentBox::TrackFragmentBox* ptr_traf_box, uint64_t prev_data_end_offset) {
+			//	return GetTrunFileOffset(ptr_traf_box, ptr_traf_box->track_run_boxes.size() > 0 ? ptr_traf_box->track_run_boxes[0] : nullptr, prev_data_end_offset);
+			//};
 
-			uint64_t base_data_offset = 0ULL;
+			//uint64_t base_data_offset = 0ULL;
 			uint64_t prev_data_end_offset = (uint64_t)-1LL;
 			for (auto ptr_traf_box = ptr_moof_box->track_fragment_boxes.cbegin(); ptr_traf_box != ptr_moof_box->track_fragment_boxes.cend(); ptr_traf_box++)
 			{
@@ -1456,7 +1904,7 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id)
 	errno_t errn = fopen_s(&fp, g_params["input"].c_str(), "rb");
 	if (errn != 0 || fp == NULL)
 	{
-		printf("Failed to open the file: %s {errno: %d}.\r\n", g_params["input"].c_str(), errn);
+		printf("Failed to open the file: %s {errno: %d}.\n", g_params["input"].c_str(), errn);
 		goto done;
 	}
 
@@ -1465,7 +1913,7 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id)
 		errn = fopen_s(&fw, g_params["output"].c_str(), "wb+");
 		if (errn != 0 || fw == NULL)
 		{
-			printf("Failed to open the file: %s {errno: %d}.\r\n", g_params["output"].c_str(), errn);
+			printf("Failed to open the file: %s {errno: %d}.\n", g_params["output"].c_str(), errn);
 			goto done;
 		}
 	}
@@ -1482,6 +1930,7 @@ done:
 
 int DumpMP4OneStream(Box* root_box, Box* track_box)
 {
+	uint32_t sample_id = 0;
 	int iRet = RET_CODE_SUCCESS;
 	FILE *fp = NULL, *fw = NULL;
 
@@ -1514,7 +1963,7 @@ int DumpMP4OneStream(Box* root_box, Box* track_box)
 	errno_t errn = fopen_s(&fp, g_params["input"].c_str(), "rb");
 	if (errn != 0 || fp == NULL)
 	{
-		printf("Failed to open the file: %s {errno: %d}.\r\n", g_params["input"].c_str(), errn);
+		printf("Failed to open the file: %s {errno: %d}.\n", g_params["input"].c_str(), errn);
 		goto done;
 	}
 
@@ -1523,20 +1972,19 @@ int DumpMP4OneStream(Box* root_box, Box* track_box)
 		errn = fopen_s(&fw, g_params["output"].c_str(), "wb+");
 		if (errn != 0 || fw == NULL)
 		{
-			printf("Failed to open the file: %s {errno: %d}.\r\n", g_params["output"].c_str(), errn);
+			printf("Failed to open the file: %s {errno: %d}.\n", g_params["output"].c_str(), errn);
 			goto done;
 		}
 	}
 
-	uint32_t sample_id = 0;
 	try
 	{
 		size_t nTotalSampleSize = pSampleSizeBox->entry_size.size();
-		for (uint32_t entry_id = 0; entry_id < pSampleToChunkBox->entry_infos.size(); entry_id++)
+		for (size_t entry_id = 0; entry_id < pSampleToChunkBox->entry_infos.size(); entry_id++)
 		{
 			uint32_t last_chunk = 0;
 			if (entry_id == pSampleToChunkBox->entry_infos.size() - 1)
-				last_chunk = pSampleToChunkBox->entry_infos[entry_id].first_chunk + (nTotalSampleSize - sample_id) / pSampleToChunkBox->entry_infos[entry_id].samples_per_chunk;
+				last_chunk = pSampleToChunkBox->entry_infos[entry_id].first_chunk + (uint32_t)(nTotalSampleSize - sample_id) / pSampleToChunkBox->entry_infos[entry_id].samples_per_chunk;
 			else
 				last_chunk = pSampleToChunkBox->entry_infos[entry_id + 1].first_chunk;
 
@@ -1601,12 +2049,23 @@ int DumpMP4()
 {
 	int iRet = -1;
 
-	CFileBitstream bs(g_params["input"].c_str(), 4096, &iRet);
-
 	auto& root_box = Box::CreateRootBox();
-	root_box.Load(bs);
+
+	{
+		CFileBitstream bs(g_params["input"].c_str(), 4096, &iRet);
+		root_box.Load(bs);
+	}
 
 	Box* ptr_box = nullptr;
+
+	std::string strBoxType;
+	auto iterBoxType = g_params.find("boxtype");
+	if (iterBoxType != g_params.end())
+	{
+		strBoxType = iterBoxType->second;
+		ptr_box = FindBox(&root_box, strBoxType);
+	}
+
 	bool bMovieTrackAbsent = false;
 	uint32_t select_track_id = UINT32_MAX;
 	if (g_params.find("trackid") != g_params.end())
@@ -1615,7 +2074,7 @@ int DumpMP4()
 		long long track_id = ConvertToLongLong(g_params["trackid"]);
 		if (track_id <= 0 || track_id > UINT32_MAX)
 		{
-			printf("The specified track-id is out of range.\r\n");
+			printf("The specified track-id is out of range.\n");
 			return -1;
 		}
 
@@ -1628,7 +2087,7 @@ int DumpMP4()
 			std::string& strBoxType = g_params["boxtype"];
 			if (strBoxType.length() < 4)
 			{
-				printf("The specified box-type is not a FOURCC string.\r\n");
+				printf("The specified box-type is not a FOURCC string.\n");
 				return -1;
 			}
 
@@ -1640,13 +2099,13 @@ int DumpMP4()
 		{
 			if (box_type == UINT32_MAX)
 			{
-				printf("Can't find the track box with the specified track-id: %lld.\r\n", track_id);
+				//printf("Can't find the track box with the specified track-id: %lld.\n", track_id);
 				// There may be still movie fragments
 				bMovieTrackAbsent = true;
 			}
 			else
 			{
-				printf("Can't find the box with box-type: %s in the track-box with track-id: %lld.\r\n", g_params["boxtype"].c_str(), track_id);
+				printf("Can't find the box with box-type: %s in the track-box with track-id: %lld.\n", g_params["boxtype"].c_str(), track_id);
 				return -1;
 			}
 		}
@@ -1659,20 +2118,20 @@ int DumpMP4()
 
 	if (g_params.find("removebox") != g_params.end())
 	{
-		std::map<uint32_t, bool> removed_box_types;
+		std::set<uint32_t> removed_box_types;
 		std::string& str_remove_boxtypes = g_params["removebox"];
 
 		if (str_remove_boxtypes.length() == 0 ||
 			str_remove_boxtypes.compare("''") == 0 ||
 			str_remove_boxtypes.compare("\"\"") == 0)
 		{
-			removed_box_types[0] = true;
+			removed_box_types.insert(0);
 		}
 		else
 		{
 			if (str_remove_boxtypes.length() < 4)
 			{
-				printf("The 'removebox' parameter is invalid.\r\n");
+				printf("The 'removebox' parameter is invalid.\n");
 				return -1;
 			}
 
@@ -1697,7 +2156,7 @@ int DumpMP4()
 			{
 				if (passed_char_count == 4)
 				{
-					removed_box_types[box_type] = true;
+					removed_box_types.insert(box_type);
 					passed_char_count = 0;
 				}
 
@@ -1712,13 +2171,13 @@ int DumpMP4()
 			}
 
 			if (passed_char_count == 4)
-				removed_box_types[box_type] = true;
+				removed_box_types.insert(box_type);
 		}
 
-		if ((iRet = RefineMP4File(g_params["input"], g_params.find("output") == g_params.end() ? g_params["input"] : g_params["output"], removed_box_types), g_verbose_level) < 0)
+		if ((iRet = RefineMP4File(&root_box, g_params["input"], g_params.find("output") == g_params.end() ? g_params["input"] : g_params["output"], removed_box_types)) < 0)
 			return iRet;
 	}
-	else if (g_params.find("trackid") != g_params.end())
+	else if (g_params.find("trackid") != g_params.end() && g_params.find("output") != g_params.end())
 	{
 		if (g_params.find("outputfmt") == g_params.end())
 			g_params["outputfmt"] = "es";

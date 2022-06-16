@@ -29,6 +29,7 @@
  * THE SOFTWARE.
  */
  
+#include "platcomm.h"
 #include "crc.h"
 #include <stdio.h>
 #include <string.h>
@@ -164,7 +165,7 @@ void PrintCRCList()
 	szLine[max_line_len - 2] = '\n';
 	szLine[max_line_len - 1] = '\0';
 
-	printf(szLine);
+	printf("%s", szLine);
 
 	char szHexNumber[64];
 	for (int i = 0; i < CRC_MAX; i++)
@@ -177,29 +178,17 @@ void PrintCRCList()
 		szLine[max_line_len - 1] = '\0';
 
 		char szFmtStr[64];
-#ifdef _MSC_VER
 		sprintf_s(szFmtStr, sizeof(szFmtStr), "0X%%0%dllX", (crc_props[i].width + 3)/4);
-#else
-		sprintf(szFmtStr, "0X%%0%dllX", (crc_props[i].width + 3) / 4);
-#endif
 
-#ifdef _MSC_VER
 		sprintf_s(szHexNumber, sizeof(szHexNumber), (const char*)szFmtStr, crc_props[i].Polynomial);
-#else
-		sprintf_s(szHexNumber, (const char*)szFmtStr, crc_props[i].Polynomial);
-#endif
 
 		memcpy(szLine + max_name_len + 4, szHexNumber, strlen(szHexNumber));
 
-#ifdef _MSC_VER
 		sprintf_s(szHexNumber, sizeof(szHexNumber), (const char*)szFmtStr, crc_props[i].Initvalue);
-#else
-		sprintf_s(szHexNumber, (const char*)szFmtStr, crc_props[i].Initvalue);
-#endif
 
 		memcpy(szLine + max_name_len + 4 + 18 + 4, szHexNumber, strlen(szHexNumber));
 
-		printf(szLine);
+		printf("%s", szLine);
 	}
 
 	delete[] szLine;
@@ -231,7 +220,7 @@ static crc  A_crcLookupTable[256] = {0};
  * Description: A value/register is reflected if it's bits are swapped around its centre.
  * For example: 0101 is the 4-bit reflection of 1010
  *
- * Descripcion: Un valor es reflejado cuando sus bits son intercambiados utilizando como punto de referencia el centro.
+ * Description: Un valor es reflejado cuando sus bits son intercambiados utilizando como punto de referencia el centro.
  * Por ejemplo: 0101 es el reflejo de 1010
  *
  *********************************************************************/
