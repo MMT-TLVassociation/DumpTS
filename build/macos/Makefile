@@ -23,30 +23,61 @@ PREPROC := -D__int64="long long"
 EXECUTABLE := DumpTS
 
 SOURCES := \
+	$(SOURCEDIR)/platcomm.cpp \
+	$(SOURCEDIR)/combase.cpp \
 	$(SOURCEDIR)/AIFF.cpp \
 	$(SOURCEDIR)/AMRingBuffer.cpp \
+	$(SOURCEDIR)/AMBitArray.cpp \
+	$(SOURCEDIR)/AMSHA1.cpp \
+	$(SOURCEDIR)/AMRFC3986.cpp \
 	$(SOURCEDIR)/AudChMap.cpp \
 	$(SOURCEDIR)/Bitstream.cpp \
+	$(SOURCEDIR)/AMBitStream.cpp \
+	$(SOURCEDIR)/nal_com.cpp \
+	$(SOURCEDIR)/nal_parser.cpp \
+	$(SOURCEDIR)/mpeg2_video_parser.cpp \
+	$(SOURCEDIR)/mpeg2_video.cpp \
+	$(SOURCEDIR)/sei.cpp \
+	$(SOURCEDIR)/h264_video.cpp \
+	$(SOURCEDIR)/h265_video.cpp \
+	$(SOURCEDIR)/h266_video.cpp \
+	$(SOURCEDIR)/av1_parser.cpp \
+	$(SOURCEDIR)/av1.cpp \
+	$(SOURCEDIR)/ESRepacker.cpp \
+	$(SOURCEDIR)/HuffmanTree.cpp \
+	$(SOURCEDIR)/IP.cpp \
+	$(SOURCEDIR)/ISO14496_1.cpp \
+	$(SOURCEDIR)/ISO14496_3.cpp \
+	$(SOURCEDIR)/ISO14496_12.cpp \
+	$(SOURCEDIR)/ISO14496_15.cpp \
+	$(SOURCEDIR)/PayloadBuf.cpp \
+	$(SOURCEDIR)/MMT.cpp \
+	$(SOURCEDIR)/Matroska.cpp \
+	$(SOURCEDIR)/PartitialTS.cpp \
+	$(SOURCEDIR)/QTFF.cpp \
+	$(SOURCEDIR)/descriptors_13818_1.cpp \
+	$(SOURCEDIR)/descriptors_hdmv.cpp \
+	$(SOURCEDIR)/system_13818_1.cpp \
+	$(SOURCEDIR)/MSEnav.cpp \
+	$(SOURCEDIR)/RefactorTS.cpp \
 	$(SOURCEDIR)/DumpMKV.cpp \
 	$(SOURCEDIR)/DumpMMT.cpp \
 	$(SOURCEDIR)/DumpMP4.cpp \
 	$(SOURCEDIR)/DumpStream.cpp \
 	$(SOURCEDIR)/DumpTS.cpp \
-	$(SOURCEDIR)/ESRepacker.cpp \
-	$(SOURCEDIR)/HuffmanTree.cpp \
-	$(SOURCEDIR)/IP.cpp \
-	$(SOURCEDIR)/ISO14496_1.cpp \
-	$(SOURCEDIR)/ISO14496_12.cpp \
-	$(SOURCEDIR)/ISO14496_15.cpp \
-	$(SOURCEDIR)/MMT.cpp \
-	$(SOURCEDIR)/Matroska.cpp \
-	$(SOURCEDIR)/PartitialTS.cpp \
-	$(SOURCEDIR)/PayloadBuf.cpp \
-	$(SOURCEDIR)/QTFF.cpp \
-	$(SOURCEDIR)/RefactorTS.cpp \
-	$(SOURCEDIR)/StdAfx.cpp \
-	$(SOURCEDIR)/combase.cpp \
-	$(SOURCEDIR)/crc.cpp
+	$(SOURCEDIR)/DumpPS.cpp \
+	$(SOURCEDIR)/DumpNAL.cpp \
+	$(SOURCEDIR)/DumpAAC.cpp \
+	$(SOURCEDIR)/DumpAV1.cpp \
+	$(SOURCEDIR)/DumpMSE.cpp \
+	$(SOURCEDIR)/transcode.cpp \
+	$(SOURCEDIR)/transcode_es.cpp \
+	$(SOURCEDIR)/Syncer.cpp \
+	$(SOURCEDIR)/TSTD.cpp \
+	$(SOURCEDIR)/crc.cpp \
+	$(SOURCEDIR)/mediaobjprint.cpp \
+	$(SOURCEDIR)/range_lex.cpp \
+	$(SOURCEDIR)/tinyxml2.cpp
 	
 OBJECTS = $(patsubst $(SOURCEDIR)/%.c, $(OBJECTDIR)/%.o, $(patsubst $(SOURCEDIR)/%.cpp, $(OBJECTDIR)/%.o, $(SOURCES)))
 
@@ -67,7 +98,7 @@ all: $(EXECUTABLE) $(EXTRATARGETS)
 
 $(EXECUTABLE): $(OBJECTS)
 	@if [ ! -d $(BINDIR)/ ]; then mkdir $(BINDIR)/ ; fi
-	$(CXX) -L$(BINDIR) -o $@ $^ $(LDFLAGS) -Wl
+	$(CXX) -L$(BINDIR) -o $@ $^ $(LDFLAGS) -ldl -Wl
 ifneq ($(OPT_DEBUG),true)
 	$(STRIP) $(EXECUTABLE)
 endif
