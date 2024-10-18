@@ -1,9 +1,34 @@
-#include "StdAfx.h"
+/*
+
+MIT License
+
+Copyright (c) 2021 Ravin.Wang(wangf1978@hotmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+#include "platcomm.h"
 #include "ISO14496_12.h"
 #include "DataUtil.h"
 #include <new>
 
-extern std::unordered_map<std::string, std::string> g_params;
+extern std::map<std::string, std::string, CaseInsensitiveComparator> g_params;
 extern int g_verbose_level;
 
 using VLC_ITEM = std::tuple<int64_t, uint8_t, uint64_t>;
@@ -306,7 +331,7 @@ struct HCOD_TREE
 
 	void Print(FILE* fp=stdout)
 	{
-		size_t line_chars = length * 5 + 2048;
+		size_t line_chars = (size_t)length * 5 + 2048;
 		char* szLine = new char[line_chars];
 		memset(szLine, ' ', line_chars);
 
@@ -317,14 +342,14 @@ struct HCOD_TREE
 		if (length >= 1)
 		{
 			HCOD_TREE* ptr_parent = parent;
-			memcpy(szLine + indent + (length - 1)*level_span, "|--", 3);
+			memcpy(szLine + indent + ((ptrdiff_t)length - 1)*level_span, "|--", 3);
 			for (int i = length - 2; i >= 0 && ptr_parent != nullptr; i--)
 			{
 				if ((ptr_parent->codeword&0x1) == 0)
-					memcpy(szLine + indent + i*level_span, "|", 1);
+					memcpy(szLine + indent + (ptrdiff_t)i*level_span, "|", 1);
 				ptr_parent = ptr_parent->parent;
 			}
-			szText = szLine + indent + 3 + (length - 1)*level_span;
+			szText = szLine + indent + 3 + ((ptrdiff_t)length - 1)*level_span;
 		}
 		else
 			szText = szLine + indent;
@@ -644,10 +669,10 @@ void GenerateHuffmanBinarySearchArray(const char* szHeaderFileName, INT_VALUE_LI
 				cbWritten = sprintf_s(szRecord, _countof(szRecord), "    {%d, %d},", iFirst, iSecond);
 			}
 
-			assert(cbWritten <= 40 && cbWritten > 0);
-
-			for (int c = 0; c < 40 - cbWritten; c++)
-				szRecord[cbWritten + c] = ' ';
+			if (cbWritten <= 40 && cbWritten > 0){
+				for (int c = 0; c < 40 - cbWritten; c++)
+					szRecord[cbWritten + c] = ' ';
+			}
 			szRecord[40] = '\0';
 
 			if (nodes[i]->left == nullptr && nodes[i]->right == nullptr)
@@ -977,10 +1002,10 @@ void GenerateSourceCode(const char* szHeaderFileName, INT_VALUE_LITERAL_FORMAT f
 				cbWritten = sprintf_s(szRecord, _countof(szRecord), "    {%d, %d},", iFirst, iSecond);
 			}
 
-			assert(cbWritten <= 40 && cbWritten > 0);
-
-			for (int c = 0; c < 40 - cbWritten; c++)
-				szRecord[cbWritten + c] = ' ';
+			if (cbWritten <= 40 && cbWritten > 0) {
+				for (int c = 0; c < 40 - cbWritten; c++)
+					szRecord[cbWritten + c] = ' ';
+			}
 			szRecord[40] = '\0';
 
 			if (nodes[i]->left == nullptr && nodes[i]->right == nullptr)

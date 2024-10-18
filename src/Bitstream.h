@@ -1,38 +1,32 @@
+/*
+
+MIT License
+
+Copyright (c) 2022 Ravin.Wang(wangf1978@hotmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
 #pragma once
 
 #include <stdint.h>
 #include <exception>
-
-#ifdef _BIG_ENDIAN_
-#define ENDIANUSHORT(src)           (uint16_t)src
-#define ENDIANULONG(src)			(uint32_t)src
-#define ENDIANUINT64(src)			(uint64_t)src
-
-#define USHORT_FIELD_ENDIAN(field)
-#define ULONG_FIELD_ENDIAN(field)
-#define UINT64_FIELD_ENDIAN(field)
-#else
-#define ENDIANUSHORT(src)			((uint16_t)((((src)>>8)&0xff) |\
-												(((src)<<8)&0xff00)))
-
-#define ENDIANULONG(src)			((uint32_t)((((src)>>24)&0xFF) |\
-												(((src)>> 8)&0xFF00) |\
-												(((src)<< 8)&0xFF0000) |\
-												(((src)<<24)&0xFF000000)))
-
-#define ENDIANUINT64(src)			((uint64_t)((((src)>>56)&0xFF) |\
-												(((src)>>40)&0xFF00) |\
-												(((src)>>24)&0xFF0000) |\
-												(((src)>> 8)&0xFF000000) |\
-												(((src)<< 8)&0xFF00000000LL) |\
-												(((src)<<24)&0xFF0000000000LL) |\
-												(((src)<<40)&0xFF000000000000LL) |\
-												(((src)<<56)&0xFF00000000000000LL)))
-
-#define USHORT_FIELD_ENDIAN(field)	field = ENDIANUSHORT(((uint16_t)field));
-#define ULONG_FIELD_ENDIAN(field)	field = ENDIANULONG(((uint32_t)field));
-#define UINT64_FIELD_ENDIAN(field)	field = ENDIANUINT64(((uint64_t)field));
-#endif //_BIG_ENDIAN_
 
 //#define _USE_64BIT_CACHE
 
@@ -130,6 +124,7 @@ protected:
 	virtual void		_UpdateCurBits(bool bEos = false);
 	virtual void		_Advance_InCacheBits(int n);
 	virtual void		_FillCurrentBits(bool bPeek = false);
+	virtual bool		_EOF() { return false; }
 	
 	void				CleanSavePoint() {save_point.p = NULL;}
 
@@ -157,6 +152,7 @@ public:
 
 protected:
 	virtual void		_FillCurrentBits(bool bPeek = false);
+	virtual bool		_EOF();
 
 protected:
 	FILE*				m_fp;
@@ -234,4 +230,184 @@ template<typename First, typename... Rem>
 void fill_bytes_from_tuple(const std::tuple<First, Rem...>& t, std::vector<uint8_t>& bytes) {
 	ArrayFiller<First, decltype(t), 1 + sizeof...(Rem)>::fill_bytes_from_tuple(t, bytes);
 }
+
+//
+// A utility bit stream reader aiming the best performance and the minimum memory foot-print
+// And the allocated buffer is in stack instead of heap
+//
+struct BITBUF
+{
+	const uint8_t*		pBuf;
+	size_t				cbBuf;
+	size_t				bitoffset = 0;
+
+	BITBUF(const uint8_t* p, size_t cb) : pBuf(p), cbBuf(cb) {}
+
+	int GetFlag(bool& bFlag) {
+		if (bitoffset + 1 > (cbBuf << 3))
+			return RET_CODE_BUFFER_TOO_SMALL;
+
+		pBuf += (bitoffset >> 3);
+		cbBuf -= (bitoffset >> 3);
+		bitoffset = bitoffset & 0x7;
+
+		bFlag = (*pBuf >> (8 - (bitoffset % 8) - 1)) & 0x1;
+		bitoffset = (bitoffset % 8) + 1;
+		return RET_CODE_SUCCESS;
+	}
+
+	int GetByte(uint8_t& u8Val)
+	{
+		if (bitoffset + 8 > (cbBuf << 3))
+			return RET_CODE_BUFFER_TOO_SMALL;
+
+		pBuf += (bitoffset >> 3);
+		cbBuf -= (bitoffset >> 3);
+		bitoffset = bitoffset & 0x7;
+
+		uint8_t left_bits = (uint8_t)(8 - (bitoffset % 8));
+		u8Val = (*pBuf) &((1 << left_bits) - 1);
+		pBuf++;
+		cbBuf--;
+
+		if (left_bits < 8)
+		{
+			left_bits = 8 - left_bits;
+			u8Val = (u8Val << left_bits) | (((*pBuf) >> (8 - left_bits))&((1 << left_bits) - 1));
+			bitoffset = left_bits;
+		}
+		else
+			bitoffset = 0;
+		return RET_CODE_SUCCESS;
+	}
+
+	template<class T>
+	int GetValue(uint8_t n, T& uVal) {
+		if (n > 64)
+			return RET_CODE_INVALID_PARAMETER;
+
+		if (bitoffset + n > (cbBuf << 3))
+			return RET_CODE_BUFFER_TOO_SMALL;
+
+		uint64_t u64Val;
+		uint8_t head_part_left = 0, body_cout_of_bytes = 0, tail_part_left = 0;
+
+		pBuf += (bitoffset >> 3);
+		cbBuf -= (bitoffset >> 3);
+		bitoffset = bitoffset & 0x7;
+
+		head_part_left = 8 - (uint8_t)(bitoffset % 8);
+		pBuf += bitoffset / 8;
+
+		if (head_part_left <= n)
+		{
+			body_cout_of_bytes = (n - head_part_left) / 8;
+			tail_part_left = (n - head_part_left) % 8;
+
+			u64Val = (*pBuf)&((1 << head_part_left) - 1); pBuf++; cbBuf--;
+
+			for (uint8_t i = 0; i < body_cout_of_bytes; i++) {
+				u64Val = (u64Val << 8) | (*pBuf);
+				pBuf++; cbBuf--;
+			}
+
+			if (tail_part_left > 0) {
+				u64Val = (u64Val << tail_part_left) | (((*pBuf) >> (8 - tail_part_left))&((1 << tail_part_left) - 1));
+				bitoffset = tail_part_left;
+			}
+			else
+				bitoffset = 0;
+		}
+		else
+		{
+			u64Val = (((*pBuf)&((1 << head_part_left) - 1)) >> (head_part_left - n))&((1 << n) - 1);
+			bitoffset += n;
+		}
+
+		uVal = (T)(u64Val);
+
+		return RET_CODE_SUCCESS;
+	}
+
+	inline int Skip(size_t nSkipBits)
+	{
+		if (bitoffset + nSkipBits > (cbBuf << 3))
+			return RET_CODE_BUFFER_TOO_SMALL;
+
+		bitoffset += nSkipBits;
+		return RET_CODE_SUCCESS;
+	}
+
+	template<class T>
+	int AV1ns(uint64_t v_max, T& uVal)
+	{
+		if (v_max == 0)
+			return RET_CODE_INVALID_PARAMETER;
+
+		int8_t w = 0;
+		uint64_t vv = v_max;
+		int iRet = RET_CODE_SUCCESS;
+		while (vv != 0){
+			vv = vv >> 1;
+			w++;
+		}
+
+		uint64_t v = 0;
+		uint64_t m = (1ULL << w) - v_max;
+		if (w > 1) {
+			if (AMP_FAILED(iRet = GetValue(w - 1, v)))
+				return iRet;
+		}
+
+		if (v < m)
+		{
+			uVal = (T)v;
+			return RET_CODE_SUCCESS;
+		}
+
+		uint64_t extract_bit;
+		if (AMP_FAILED(iRet = GetValue(1, extract_bit)))
+			return iRet;
+
+		uVal = (T)((v << 1) - m + extract_bit);
+		return iRet;
+	}
+
+	template<class T>
+	int AV1su(uint8_t nBits, T& uVal)
+	{
+		if (nBits > 64)
+			return RET_CODE_INVALID_PARAMETER;
+
+		uint64_t value;
+		int iRet = RET_CODE_SUCCESS;
+		if (AMP_FAILED(iRet = GetValue(nBits, value)))
+			return iRet;
+		uint64_t signMask = 1ULL << (nBits - 1);
+		if (value & signMask)
+			uVal = (T)(value - (signMask << 1));
+		else
+			uVal = (T)value;
+		return iRet;
+	}
+
+	inline void SkipFast(size_t nSkipBits){
+		bitoffset += nSkipBits;
+	}
+
+	inline int ByteAlign(){
+		if (bitoffset % 8)
+		{
+			bitoffset += 8 - (bitoffset % 8);
+
+			if (bitoffset > (cbBuf << 3))
+				return RET_CODE_BUFFER_TOO_SMALL;
+
+			pBuf += (bitoffset >> 3);
+			cbBuf -= (bitoffset >> 3);
+			bitoffset = 0;
+		}
+		return RET_CODE_SUCCESS;
+	}
+};
 

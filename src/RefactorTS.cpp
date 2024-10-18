@@ -1,9 +1,41 @@
-#include "StdAfx.h"
+/*
+
+MIT License
+
+Copyright (c) 2021 Ravin.Wang(wangf1978@hotmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+#include "platcomm.h"
 #include <stdio.h>
 #include "PayloadBuf.h"
+#include "AMRingBuffer.h"
 #include <algorithm>
+#include "systemdef.h"
+#include "system_13818_1.h"
 
-extern unordered_map<std::string, std::string> g_params;
+extern map<std::string, std::string, CaseInsensitiveComparator> 
+											g_params;
+extern MEDIA_SCHEME_TYPE					g_source_media_scheme_type;
+extern MEDIA_SCHEME_TYPE					CheckAndUpdateFileFormat(std::string& filepath, const char* param_name);
+extern MEDIA_SCHEME_TYPE					GetMediaSchemeTypeFromFormat(const char* param_name);
 
 // Refactor TS, for example, change PID, PTS, or changing from ts to m2ts and so on
 int RefactorTS()
@@ -28,6 +60,9 @@ int RefactorTS()
 	unsigned char dest_ts_pack_size = TS_PACKET_SIZE - 4;
 
 	unsigned long ts_pack_idx = 0;
+	auto iterOutput = g_params.find("output");
+	auto iterDstFmt = g_params.find("outputfmt");
+	auto iterSrcFmt = g_params.find("srcfmt");
 
 	errno_t errn = fopen_s(&fp, g_params["input"].c_str(), "rb");
 	if (errn != 0 || fp == NULL)
@@ -35,8 +70,8 @@ int RefactorTS()
 		printf("Failed to open the file: %s {errno: %d}.\n", g_params["input"].c_str(), errn);
 		goto done;
 	}
-
-	if (g_params.find("output") != g_params.end())
+	
+	if (iterOutput != g_params.end())
 	{
 		errn = fopen_s(&fw, g_params["output"].c_str(), "wb+");
 		if (errn != 0 || fw == NULL)
@@ -46,32 +81,23 @@ int RefactorTS()
 		}
 	}
 
-	if (g_params.find("srcfmt") == g_params.end())
+	if (iterDstFmt == g_params.end())
 	{
-		// Check its extension name
-		char szExt[_MAX_EXT];
-		memset(szExt, 0, sizeof(szExt));
-		_splitpath_s(g_params["input"].c_str(), NULL, 0, NULL, 0, NULL, 0, szExt, _MAX_EXT);
-
-		if (_stricmp(szExt, ".ts") == 0)
-			g_params["srcfmt"] = "ts";
-		else if (_stricmp(szExt, ".m2ts") == 0)
-			g_params["srcfmt"] = "m2ts";
+		if (iterSrcFmt != g_params.end())
+		{
+			// Assume the output format is the same with input format
+			g_params["outputfmt"] = iterSrcFmt->second;
+			iterDstFmt = g_params.find("outputfmt");
+		}
 		else
 		{
-			// Implement it later, need scan the current TS, and decide which kind of TS stream it is.
+			printf("Don't know the output format!\n");
 			goto done;
 		}
 	}
 
-	if (g_params.find("outputfmt") == g_params.end())
-	{
-		// Assume the output format is the same with input format
-		g_params["outputfmt"] = g_params["srcfmt"];
-	}
-
 	// Check whether to add 30bits of ATC time at the beginning of each 188 TS packet
-	if (g_params["outputfmt"].compare("m2ts") == 0 && g_params["srcfmt"].compare("ts") == 0)
+	if (iterDstFmt->second.compare("m2ts") == 0 && iterSrcFmt->second.compare("ts") == 0)
 		bAppendATCTime = true;
 
 	if (g_params.find("pid") != g_params.end() && g_params.find("destpid") != g_params.end())
@@ -136,10 +162,10 @@ int RefactorTS()
 		}
 	}
 
-	if (g_params.find("srcfmt") != g_params.end() && g_params["srcfmt"].compare("m2ts") == 0)
+	if (g_params.find("srcfmt") != g_params.end() && (iterSrcFmt->second.compare("m2ts") == 0 || iterSrcFmt->second.compare("tts") == 0))
 		ts_pack_size = TS_PACKET_SIZE;
 
-	if (g_params.find("outputfmt") != g_params.end() && g_params["outputfmt"].compare("m2ts") == 0)
+	if (iterDstFmt != g_params.end() && (iterDstFmt->second.compare("m2ts") == 0))
 	{
 		buf_head_offset = 4;
 		dest_ts_pack_size = TS_PACKET_SIZE;
@@ -172,11 +198,6 @@ int RefactorTS()
 		else if (dest_ts_pack_size == 188 && ts_pack_size == 192)
 		{
 			memmove(buf, buf + 4, 188);
-		}
-		else
-		{
-			printf("Don't know how to process {%s(), %s: %d}.\n", __FUNCTION__, __FILE__, __LINE__);
-			break;
 		}
 
 		// Try to change PID

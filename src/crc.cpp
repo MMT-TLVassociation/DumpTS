@@ -29,7 +29,7 @@
  * THE SOFTWARE.
  */
  
-#include "StdAfx.h"
+#include "platcomm.h"
 #include "crc.h"
 #include <stdio.h>
 #include <string.h>
@@ -220,7 +220,7 @@ static crc  A_crcLookupTable[256] = {0};
  * Description: A value/register is reflected if it's bits are swapped around its centre.
  * For example: 0101 is the 4-bit reflection of 1010
  *
- * Descripcion: Un valor es reflejado cuando sus bits son intercambiados utilizando como punto de referencia el centro.
+ * Description: Un valor es reflejado cuando sus bits son intercambiados utilizando como punto de referencia el centro.
  * Por ejemplo: 0101 es el reflejo de 1010
  *
  *********************************************************************/
@@ -487,14 +487,14 @@ inline uint64_t _ReserveCRCBits(uint64_t u64Ret, uint8_t width)
 		return uRet;\
 	}\
 
-uint64_t CalcCRC(CRC_TYPE type, const uint8_t* pBuf, size_t cbSize)
+uint64_t CalcCRC(CRC_TYPE type, uint8_t* pBuf, size_t cbSize)
 {
 	if (type < 0 || type >= CRC_MAX)
 		return UINT64_MAX;
 
 	_InitCRC(type);
 
-	const uint8_t* pEndBuf = pBuf + cbSize;
+	uint8_t* pEndBuf = pBuf + cbSize;
 	uint8_t crc_width = crc_props[type].width;
 	uint64_t* crc_lut = crc_props[type].CRCLookupTable;
 	bool bNeedReservedBit = crc_props[type].Reversed;

@@ -1,4 +1,29 @@
-#include "StdAfx.h"
+/*
+
+MIT License
+
+Copyright (c) 2021 Ravin.Wang(wangf1978@hotmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+#include "platcomm.h"
 #include "PayloadBuf.h"
 #include "DumpTS.h"
 #include "Bitstream.h"
@@ -6,82 +31,18 @@
 #include <functional>
 #include "ISO14496_12.h"
 #include "ISO14496_15.h"
+#include "NAL.h"
+#include "AMRFC3986.h"
 
 using namespace std;
-using namespace ISOBMFF;
+using namespace BST::ISOBMFF;
 
 extern const char *dump_msg[];
-extern unordered_map<std::string, std::string> g_params;
+extern map<std::string, std::string, CaseInsensitiveComparator> g_params;
 extern TS_FORMAT_INFO g_ts_fmtinfo;
 extern int g_verbose_level;
 extern DUMP_STATUS g_dump_status;
-
-const char* hevc_nal_unit_type_names[64] = {
-	/*00*/ "VCL::TRAIL_N",
-	/*01*/ "VCL::TRAIL_R",
-	/*02*/ "VCL::TSA_N",
-	/*03*/ "VCL::TSA_R",
-	/*04*/ "VCL::STSA_N",
-	/*05*/ "VCL::STSA_R",
-	/*06*/ "VCL::RADL_N",
-	/*07*/ "VCL::RADL_R",
-	/*08*/ "VCL::RASL_N",
-	/*09*/ "VCL::RASL_R",
-	/*10*/ "VCL::RSV_VCL_N10",
-	/*11*/ "VCL::RSV_VCL_R11",
-	/*12*/ "VCL::RSV_VCL_N12",
-	/*13*/ "VCL::RSV_VCL_R13",
-	/*14*/ "VCL::RSV_VCL_N14",
-	/*15*/ "VCL::RSV_VCL_R15",
-	/*16*/ "VCL::BLA_W_LP Coded",
-	/*17*/ "VCL::BLA_W_RADL",
-	/*18*/ "VCL::BLA_N_LP",
-	/*19*/ "VCL::IDR_W_RADL",
-	/*20*/ "VCL::IDR_N_LP",
-	/*21*/ "VCL::CRA_NUT",
-	/*22*/ "VCL::RSV_IRAP_VCL22",
-	/*23*/ "VCL::RSV_IRAP_VCL23",
-	/*24*/ "VCL::RSV_VCL24",
-	/*25*/ "VCL::RSV_VCL25",
-	/*26*/ "VCL::RSV_VCL26",
-	/*27*/ "VCL::RSV_VCL27",
-	/*28*/ "VCL::RSV_VCL28",
-	/*29*/ "VCL::RSV_VCL29",
-	/*30*/ "VCL::RSV_VCL30",
-	/*31*/ "VCL::RSV_VCL31",
-	/*32*/ "non-VCL::VPS_NUT",
-	/*33*/ "non-VCL::SPS_NUT",
-	/*34*/ "non-VCL::PPS_NUT",
-	/*35*/ "non-VCL::AUD_NUT",
-	/*36*/ "non-VCL::EOS_NUT",
-	/*37*/ "non-VCL::EOB_NUT",
-	/*38*/ "non-VCL::FD_NUT",
-	/*39*/ "non-VCL::PREFIX_SEI_NUT",
-	/*40*/ "non-VCL::SUFFIX_SEI_NUT",
-	/*41*/ "non-VCL::RSV_NVCL41",
-	/*42*/ "non-VCL::RSV_NVCL42",
-	/*43*/ "non-VCL::RSV_NVCL43",
-	/*44*/ "non-VCL::RSV_NVCL44",
-	/*45*/ "non-VCL::RSV_NVCL45",
-	/*46*/ "non-VCL::RSV_NVCL46",
-	/*47*/ "non-VCL::RSV_NVCL47",
-	/*48*/ "non-VCL::UNSPEC48",
-	/*49*/ "non-VCL::UNSPEC49",
-	/*50*/ "non-VCL::UNSPEC50",
-	/*51*/ "non-VCL::UNSPEC51",
-	/*52*/ "non-VCL::UNSPEC52",
-	/*53*/ "non-VCL::UNSPEC53",
-	/*54*/ "non-VCL::UNSPEC54",
-	/*55*/ "non-VCL::UNSPEC55",
-	/*56*/ "non-VCL::UNSPEC56",
-	/*57*/ "non-VCL::UNSPEC57",
-	/*58*/ "non-VCL::UNSPEC58",
-	/*59*/ "non-VCL::UNSPEC59",
-	/*60*/ "non-VCL::UNSPEC60",
-	/*61*/ "non-VCL::UNSPEC61",
-	/*62*/ "non-VCL::UNSPEC62",
-	/*63*/ "non-VCL::UNSPEC63",
-};
+extern const char* hevc_nal_unit_type_names[64];
 
 using MP4_Boxes_Layout = std::vector<std::tuple<uint32_t/*box type*/, int64_t/*start pos*/, int64_t/*end_pos*/>>;
 
@@ -260,8 +221,8 @@ int FlushBoxSlice(BoxSlice& box_slice, FILE* fp, FILE* fw, uint64_t nMDATShift)
 
 		if (entry_count > 0)
 		{
-			uint8_t *chunk_offsets = new uint8_t[entry_count*entry_size];
-			if ((actual_read_size = fread(chunk_offsets, 1, entry_count*entry_size, fp)) != entry_count*entry_size)
+			uint8_t *chunk_offsets = new uint8_t[(size_t)entry_count*entry_size];
+			if ((actual_read_size = fread(chunk_offsets, 1, (size_t)entry_count*entry_size, fp)) != (size_t)entry_count*entry_size)
 			{
 				delete[] chunk_offsets;
 				printf("[MP4] Failed to read %" PRIu32 " bytes for 'stco' and 'co64' box.\n", entry_count*entry_size);
@@ -316,7 +277,7 @@ int FlushBoxSlice(BoxSlice& box_slice, FILE* fp, FILE* fw, uint64_t nMDATShift)
 				}
 			}
 
-			if (fwrite(chunk_offsets, 1, entry_count*entry_size, fw) != entry_count*entry_size)
+			if (fwrite(chunk_offsets, 1, (size_t)entry_count*entry_size, fw) != (size_t)entry_count*entry_size)
 			{
 				delete[] chunk_offsets;
 				return RET_CODE_ERROR;
@@ -823,10 +784,10 @@ done:
 
 void PrintTree(Box* ptr_box, int level)
 {
-	if (ptr_box == nullptr)
+	if (ptr_box == nullptr || level < 0)
 		return;
 
-	size_t line_chars = level * 5 + 128;
+	size_t line_chars = (size_t)level * 5 + 128;
 	char* szLine = new char[line_chars];
 	memset(szLine, ' ', line_chars);
 	
@@ -837,14 +798,14 @@ void PrintTree(Box* ptr_box, int level)
 	if (level >= 1)
 	{
 		Box* ptr_parent = ptr_box->container;
-		memcpy(szLine + indent + (level - 1)*level_span, "|--", 3);
+		memcpy(szLine + indent + ((ptrdiff_t)level - 1)*level_span, "|--", 3);
 		for (int i = level - 2; i >= 0 && ptr_parent != nullptr; i--)
 		{
 			if (ptr_parent->next_sibling != nullptr)
-				memcpy(szLine + indent + i*level_span, "|", 1);
+				memcpy(szLine + indent + (ptrdiff_t)i*level_span, "|", 1);
 			ptr_parent = ptr_parent->container;
 		}
-		szText = szLine + indent + 3 + (level - 1)*level_span;
+		szText = szLine + indent + 3 + ((ptrdiff_t)level - 1)*level_span;
 	}
 	else
 		szText = szLine + indent;
@@ -1015,6 +976,56 @@ void PrintTree(Box* ptr_box, int level)
 	return;
 }
 
+Box* FindBox(Box* ptr_box, std::string strBoxPath)
+{
+	URI_Components box_uri;
+	int nRet = AMURI_Split(strBoxPath.c_str(), box_uri);
+
+	if (AMP_FAILED(nRet))
+		return nullptr;
+
+	if (box_uri.Ranges[URI_COMPONENT_PATH].IsEmpty())
+		return nullptr;
+
+	std::vector<URI_Segment> component_segments;
+	if (AMP_FAILED(AMURI_SplitComponent(strBoxPath.c_str() + box_uri.Ranges[URI_COMPONENT_PATH].start, box_uri.Ranges[URI_COMPONENT_PATH].length, component_segments)))
+		return nullptr;
+
+	for (auto& seg : component_segments)
+	{
+		int64_t idx = INT64_MAX;
+		std::string strBoxSeg;
+		if (AMP_FAILED(AMURI_DecodeSegment(strBoxPath.c_str() + seg.start, seg.length, strBoxSeg)))
+			return nullptr;
+
+		const char* p = strBoxSeg.c_str();
+		if (strBoxSeg.length() > 4)
+			ConvertToInt((char*)p + 4, (char*)p + strBoxSeg.length(), idx);
+		else if (strBoxSeg.length() < 4)
+			return nullptr;
+
+		int found_idx = -1;
+		uint32_t seg_box_type = ((uint32_t)(*p) << 24) | ((uint32_t)(*(p + 1)) << 16) | ((uint32_t)(*(p + 2)) << 8) | *(p + 3);
+		for (auto child = ptr_box->first_child; child != nullptr; child = child->next_sibling)
+		{
+			if (child->type == seg_box_type)
+			{
+				found_idx++;
+				if (idx == found_idx || idx == INT64_MAX)
+				{
+					ptr_box = child;
+					break;
+				}
+			}
+		}
+
+		if (found_idx <= -1 || (idx != INT64_MAX && idx != found_idx))
+			return nullptr;
+	}
+
+	return ptr_box;
+}
+
 Box* FindBox(Box* ptr_box, uint32_t track_id, uint32_t box_type)
 {
 	if (ptr_box == nullptr)
@@ -1077,7 +1088,11 @@ done:
 #else
 	if (g_params.find("trackid") == g_params.end() || ptr_box == nullptr)
 	{
-		PrintTree(root_box, 0);
+		if (ptr_box != nullptr)
+			PrintTree(ptr_box, 0);
+		else
+			PrintTree(root_box, 0);
+
 		return iRet;
 	}
 
@@ -1361,7 +1376,11 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 			if (pVisualSampleEntry == nullptr)
 				continue;
 
-			if (pVisualSampleEntry->type == 'hvc1' || pVisualSampleEntry->type == 'hev1' || pVisualSampleEntry->type == 'hvcC')
+			if (pVisualSampleEntry->type == 'av1C')
+			{
+
+			}
+			else if (pVisualSampleEntry->type == 'hvc1' || pVisualSampleEntry->type == 'hev1' || pVisualSampleEntry->type == 'hvcC')
 			{
 				auto pHEVCSampleEntry = (HEVCSampleEntry*)pVisualSampleEntry;
 				if (pHEVCSampleEntry != nullptr && pHEVCSampleEntry->config != nullptr)
@@ -1419,7 +1438,7 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 
 		uint8_t buf[2048];
 		int64_t cbLeft = sample_size;
-		int8_t next_nal_unit_type = (int8_t)HEVC_NAL_UNIT_TYPE::VPS_NUT;
+		int8_t next_nal_unit_type = (int8_t)HEVC_VPS_NUT;
 		bool bFirstNALUnit = true;
 
 		auto write_nu_array = [&](int8_t nal_unit_type) {
@@ -1431,7 +1450,7 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 			{
 				if (fw != NULL)
 				{
-					if (nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::VPS_NUT || nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::SPS_NUT || nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PPS_NUT)
+					if (nal_unit_type == (int8_t)HEVC_VPS_NUT || nal_unit_type == (int8_t)HEVC_SPS_NUT || nal_unit_type == (int8_t)HEVC_PPS_NUT)
 						fwrite(four_bytes_start_prefixes, 1, 4, fw);
 					else
 						fwrite(three_bytes_start_prefixes, 1, 3, fw);
@@ -1451,13 +1470,13 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 		while (cbLeft > 0)
 		{
 			uint32_t NALUnitLength = 0;
-			if (fread(buf, 1, lengthSizeMinusOne + 1UL, fp) != lengthSizeMinusOne + 1UL)
+			if (fread(buf, 1, (size_t)lengthSizeMinusOne + 1UL, fp) != (size_t)lengthSizeMinusOne + 1UL)
 				break;
 
 			for (int i = 0; i < lengthSizeMinusOne + 1; i++)
 				NALUnitLength = (NALUnitLength << 8) | buf[i];
 
-			bool bLastNALUnit = cbLeft <= (lengthSizeMinusOne + 1 + NALUnitLength) ? true : false;
+			bool bLastNALUnit = cbLeft <= ((int64_t)lengthSizeMinusOne + 1 + NALUnitLength) ? true : false;
 
 			uint8_t first_leading_read_pos = 0;
 			if (key_sample && next_nal_unit_type != -1)
@@ -1471,31 +1490,31 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 				int8_t nal_unit_type = (buf[0] >> 1) & 0x3F;
 				int8_t nuh_layer_id = ((buf[0] & 0x01) << 5) | ((buf[1] >> 3) & 0x1F);
 				int8_t nuh_temporal_id_plus1 = buf[1] & 0x07;
-				if (nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::VPS_NUT || 
-					nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::SPS_NUT || 
-					nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PPS_NUT || 
-					nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PREFIX_SEI_NUT)
+				if (nal_unit_type == (int8_t)HEVC_VPS_NUT || 
+					nal_unit_type == (int8_t)HEVC_SPS_NUT || 
+					nal_unit_type == (int8_t)HEVC_PPS_NUT || 
+					nal_unit_type == (int8_t)HEVC_PREFIX_SEI_NUT)
 				{
 					for (int8_t i = next_nal_unit_type; i < nal_unit_type; i++)
 						write_nu_array(i);
 
-					next_nal_unit_type = (nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PPS_NUT) ? (int8_t)HEVC_NAL_UNIT_TYPE::PREFIX_SEI_NUT : (
-										  nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::PREFIX_SEI_NUT? (int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT:(nal_unit_type + 1));
+					next_nal_unit_type = (nal_unit_type == (int8_t)HEVC_PPS_NUT) ? (int8_t)HEVC_PREFIX_SEI_NUT : (
+										  nal_unit_type == (int8_t)HEVC_PREFIX_SEI_NUT? (int8_t)HEVC_SUFFIX_SEI_NUT:(nal_unit_type + 1));
 				}
-				else if (nal_unit_type >= (int8_t)HEVC_NAL_UNIT_TYPE::TRAIL_N && nal_unit_type <= (int8_t)HEVC_NAL_UNIT_TYPE::RSV_VCL31)
+				else if (nal_unit_type >= (int8_t)HEVC_TRAIL_N && nal_unit_type <= (int8_t)HEVC_RSV_VCL31)
 				{
-					for (int8_t i = next_nal_unit_type; i <= (int8_t)HEVC_NAL_UNIT_TYPE::PREFIX_SEI_NUT; i++)
+					for (int8_t i = next_nal_unit_type; i <= (int8_t)HEVC_PREFIX_SEI_NUT; i++)
 						write_nu_array(i);
 
-					next_nal_unit_type = (int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT;
+					next_nal_unit_type = (int8_t)HEVC_SUFFIX_SEI_NUT;
 				}
 				else
 				{
-					if (nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT)
+					if (nal_unit_type == (int8_t)HEVC_SUFFIX_SEI_NUT)
 						next_nal_unit_type = -1;
 
-					if (next_nal_unit_type == (int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT && bLastNALUnit)
-						write_nu_array((int8_t)HEVC_NAL_UNIT_TYPE::SUFFIX_SEI_NUT);
+					if (next_nal_unit_type == (int8_t)HEVC_SUFFIX_SEI_NUT && bLastNALUnit)
+						write_nu_array((int8_t)HEVC_SUFFIX_SEI_NUT);
 				}
 			}
 
@@ -1516,13 +1535,13 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 					break;
 
 				if (fw != NULL)
-					fwrite(buf, 1, nCpyCnt + first_leading_read_pos, fw);
+					fwrite(buf, 1, (size_t)nCpyCnt + first_leading_read_pos, fw);
 
 				cbLeftNALUnit -= nCpyCnt;
 				first_leading_read_pos = 0;
 			}
 
-			cbLeft -= lengthSizeMinusOne + 1 + NALUnitLength;
+			cbLeft -= (int64_t)lengthSizeMinusOne + 1 + NALUnitLength;
 			bFirstNALUnit = false;
 		}
 
@@ -1533,11 +1552,11 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 	{
 		uint8_t buf[2048];
 		int64_t cbLeft = sample_size;
-		int8_t next_nal_unit_type = (int8_t)AVC_NAL_UNIT_TYPE::SPS_NUT;
+		int8_t next_nal_unit_type = (int8_t)AVC_SPS_NUT;
 		bool bFirstNALUnit = true;
 
 		auto write_nu_array = [&](int8_t nal_unit_type) {
-			if (nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::SPS_NUT)
+			if (nal_unit_type == (int8_t)AVC_SPS_NUT)
 			{
 				for (size_t i = 0; i < pAVCConfigurationBox->AVCConfig->sequenceParameterSetNALUnits.size(); i++)
 				{
@@ -1550,7 +1569,7 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 				}
 				return true;
 			}
-			else if(nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::PPS_NUT)
+			else if(nal_unit_type == (int8_t)AVC_PPS_NUT)
 			{
 				for (size_t i = 0; i < pAVCConfigurationBox->AVCConfig->pictureParameterSetNALUnits.size(); i++)
 				{
@@ -1563,7 +1582,7 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 				}
 				return true;
 			}
-			else if (nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::SPS_EXT_NUT)
+			else if (nal_unit_type == (int8_t)AVC_SPS_EXT_NUT)
 			{
 				for (size_t i = 0; i < pAVCConfigurationBox->AVCConfig->sequenceParameterSetExtNALUnits.size(); i++)
 				{
@@ -1587,13 +1606,13 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 		while (cbLeft > 0)
 		{
 			uint32_t NALUnitLength = 0;
-			if (fread(buf, 1, lengthSizeMinusOne + 1UL, fp) != lengthSizeMinusOne + 1ULL)
+			if (fread(buf, 1, (size_t)lengthSizeMinusOne + 1UL, fp) != (size_t)lengthSizeMinusOne + 1ULL)
 				break;
 
 			for (int i = 0; i < lengthSizeMinusOne + 1; i++)
 				NALUnitLength = (NALUnitLength << 8) | buf[i];
 
-			bool bLastNALUnit = cbLeft <= (lengthSizeMinusOne + 1 + NALUnitLength) ? true : false;
+			bool bLastNALUnit = cbLeft <= ((int64_t)lengthSizeMinusOne + 1 + NALUnitLength) ? true : false;
 			DBG_UNREFERENCED_LOCAL_VARIABLE(bLastNALUnit);
 
 			uint8_t first_leading_read_pos = 0;
@@ -1607,25 +1626,25 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 
 				int8_t nal_ref_idc = (buf[0] >> 5) & 0x03; DBG_UNREFERENCED_LOCAL_VARIABLE(nal_ref_idc);
 				int8_t nal_unit_type = buf[0] & 0x1F;
-				if (nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::SPS_NUT || nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::PPS_NUT)
+				if (nal_unit_type == (int8_t)AVC_SPS_NUT || nal_unit_type == (int8_t)AVC_PPS_NUT)
 				{
 					for (int8_t i = next_nal_unit_type; i < nal_unit_type; i++)
 						write_nu_array(i);
 
-					next_nal_unit_type = nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::PPS_NUT ? (int8_t)AVC_NAL_UNIT_TYPE::SPS_EXT_NUT : (nal_unit_type + 1);
+					next_nal_unit_type = nal_unit_type == (int8_t)AVC_PPS_NUT ? (int8_t)AVC_SPS_EXT_NUT : (nal_unit_type + 1);
 				}
 				else if (nal_unit_type >= 1 && nal_unit_type <= 5)
 				{
-					for (int8_t i = next_nal_unit_type; i <= (int8_t)AVC_NAL_UNIT_TYPE::SPS_EXT_NUT; i++)
+					for (int8_t i = next_nal_unit_type; i <= (int8_t)AVC_SPS_EXT_NUT; i++)
 						write_nu_array(i);
 					next_nal_unit_type = -1;
 				}
-				else if (nal_unit_type == (int8_t)AVC_NAL_UNIT_TYPE::SEI_NUT)
+				else if (nal_unit_type == (int8_t)AVC_SEI_NUT)
 				{
-					for (int8_t i = next_nal_unit_type; i <= (int8_t)AVC_NAL_UNIT_TYPE::PPS_NUT; i++)
+					for (int8_t i = next_nal_unit_type; i <= (int8_t)AVC_PPS_NUT; i++)
 						write_nu_array(i);
 
-					next_nal_unit_type = (int8_t)AVC_NAL_UNIT_TYPE::SPS_EXT_NUT;
+					next_nal_unit_type = (int8_t)AVC_SPS_EXT_NUT;
 				}
 			}
 
@@ -1646,13 +1665,13 @@ int DumpMP4Sample(MovieBox::TrackBox::MediaBox::MediaInformationBox::SampleTable
 					break;
 
 				if (fw != NULL)
-					fwrite(buf, 1, nCpyCnt + first_leading_read_pos, fw);
+					fwrite(buf, 1, (size_t)nCpyCnt + first_leading_read_pos, fw);
 
 				cbLeftNALUnit -= nCpyCnt;
 				first_leading_read_pos = 0;
 			}
 
-			cbLeft -= lengthSizeMinusOne + 1 + NALUnitLength;
+			cbLeft -= (int64_t)lengthSizeMinusOne + 1 + NALUnitLength;
 			bFirstNALUnit = false;
 		}
 
@@ -1706,7 +1725,7 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id, FILE* f
 					if (v == nullptr)
 						continue;
 
-					ISOBMFF::MovieBox::TrackBox* ptr_trak_box = (ISOBMFF::MovieBox::TrackBox*)result[0];
+					BST::ISOBMFF::MovieBox::TrackBox* ptr_trak_box = (BST::ISOBMFF::MovieBox::TrackBox*)result[0];
 					if (ptr_trak_box->GetTrackID() == track_id)
 					{
 						// Try to find the 'stsd' box, and update the current null one
@@ -1719,6 +1738,9 @@ int DumpMP4OneStreamFromMovieFragments(Box* root_box, uint32_t track_id, FILE* f
 				}
 			}
 		}
+
+		if (pSampleDescBox == nullptr)
+			printf("Can't find the track box with the specified track-id: %" PRIu32 ".\n", track_id);
 	}
 
 	int sample_id = 0;
@@ -2035,6 +2057,15 @@ int DumpMP4()
 	}
 
 	Box* ptr_box = nullptr;
+
+	std::string strBoxType;
+	auto iterBoxType = g_params.find("boxtype");
+	if (iterBoxType != g_params.end())
+	{
+		strBoxType = iterBoxType->second;
+		ptr_box = FindBox(&root_box, strBoxType);
+	}
+
 	bool bMovieTrackAbsent = false;
 	uint32_t select_track_id = UINT32_MAX;
 	if (g_params.find("trackid") != g_params.end())
@@ -2068,7 +2099,7 @@ int DumpMP4()
 		{
 			if (box_type == UINT32_MAX)
 			{
-				printf("Can't find the track box with the specified track-id: %lld.\n", track_id);
+				//printf("Can't find the track box with the specified track-id: %lld.\n", track_id);
 				// There may be still movie fragments
 				bMovieTrackAbsent = true;
 			}
@@ -2146,7 +2177,7 @@ int DumpMP4()
 		if ((iRet = RefineMP4File(&root_box, g_params["input"], g_params.find("output") == g_params.end() ? g_params["input"] : g_params["output"], removed_box_types)) < 0)
 			return iRet;
 	}
-	else if (g_params.find("trackid") != g_params.end())
+	else if (g_params.find("trackid") != g_params.end() && g_params.find("output") != g_params.end())
 	{
 		if (g_params.find("outputfmt") == g_params.end())
 			g_params["outputfmt"] = "es";

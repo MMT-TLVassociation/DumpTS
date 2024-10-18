@@ -1,11 +1,36 @@
+/*
+
+MIT License
+
+Copyright (c) 2021 Ravin.Wang(wangf1978@hotmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
 #pragma once
 
 #include <stdint.h>
 #include "Bitstream.h"
-#include "combase.h"
 #include "DataUtil.h"
 #include <algorithm>
 #include <list>
+#include "dump_data_type.h"
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -22,6 +47,8 @@
 #endif
 
 #define IP_FIX_HEADER_FMT_STR				"%s%21s"
+#define NTPSHORTTIME_FMT_STR				"%12.6f"	//  5(16bit seconds) + 1(.) + 6(16bit fraction)
+#define NTPTIME_FMT_STR						"%17.6f"	// 10(32bit seconds) + 1(.) + 6(32bit fraction)
 
 namespace IP
 {
@@ -99,14 +126,33 @@ namespace IP
 		*/
 		struct NTPShortFormat
 		{
-			uint16_t		Seconds;
-			uint16_t		Fraction;
+			union
+			{
+				struct
+				{
+					uint16_t		Seconds;
+					uint16_t		Fraction;
+				};
+				uint32_t			Value;
+			};
 
 			int Unpack(CBitstream& bs)
 			{
 				Seconds = bs.GetWord();
 				Fraction = bs.GetWord();
 				return RET_CODE_SUCCESS;
+			}
+
+			double GetValue() const {
+				return Seconds + (double)Fraction / 0x10000L;
+			}
+
+			bool IsUnknown() {
+				return Seconds == 0 && Fraction == 0;
+			}
+
+			void Reset() {
+				Seconds = Fraction = 0;
 			}
 		}PACKED;
 
@@ -121,8 +167,15 @@ namespace IP
 		*/
 		struct NTPTimestampFormat
 		{
-			uint32_t		Seconds;
-			uint32_t		Fraction;
+			union
+			{
+				struct
+				{
+					uint32_t		Seconds;
+					uint32_t		Fraction;
+				};
+				uint64_t			Value;
+			};
 
 			int Unpack(CBitstream& bs)
 			{
@@ -130,6 +183,73 @@ namespace IP
 				Fraction = bs.GetDWord();
 				return RET_CODE_SUCCESS;
 			}
+
+			bool IsUnknown() {
+				return Seconds == 0 && Fraction == 0;
+			}
+
+			void Reset() {
+				Seconds = Fraction = 0;
+			}
+
+			double GetValue() const {
+				return Seconds + (double)Fraction / 0x100000000LL;
+			}
+
+			TM_HNS ToHns()
+			{
+				TM_HNS secondHNS = (TM_HNS)Seconds * 10000000LL;
+				return (TM_HNS)((secondHNS + Fraction * 10000000LL / 0x100000000LL));
+			}
+
+			TM_90KHZ ToPTS()
+			{
+				TM_90KHZ second290KHZ = (TM_90KHZ)Seconds * 90000LL;
+				return (TM_90KHZ)((second290KHZ + Fraction * 90000LL / 0x100000000LL) % 0x200000000LL);
+			}
+
+			TM_90KHZ PTSDiff(const NTPTimestampFormat& tm2)
+			{
+				int64_t diff_second = (int64_t)Seconds - (int64_t)tm2.Seconds;
+				int64_t diff_fraction = (int64_t)Fraction - (int64_t)tm2.Fraction;
+
+				return (TM_90KHZ)((diff_second * 90000LL + diff_fraction * 90000LL / 0x100000000LL) % 0x200000000LL);
+			}
+
+			NTPTimestampFormat& IncreaseBy(uint32_t offset, uint32_t time_scale) {
+				if (offset == 0)
+					return *this;
+
+				uint64_t sum_fractions = Fraction + ((offset * 0x100000000ULL / time_scale) & 0xFFFFFFFFULL);
+					
+				Fraction = (uint32_t)(sum_fractions & 0xFFFFFFFF);
+
+				if (sum_fractions >= 0x100000000ULL)
+					Seconds++;
+
+				Seconds += (uint32_t)(((offset * 0x100000000ULL / time_scale) >> 32) & 0xFFFFFFFFULL);
+				return *this;
+			}
+
+			NTPTimestampFormat& DecreaseBy(uint32_t offset, uint32_t time_scale)
+			{
+				if (offset == 0)
+					return *this;
+
+				Seconds -= 1;
+				uint64_t sum_fractions = 0x100000000ULL + Fraction - ((offset * 0x100000000ULL / time_scale) & 0xFFFFFFFFULL);
+
+				Fraction = (uint32_t)(sum_fractions & 0xFFFFFFFF);
+
+				if (sum_fractions >= 0x100000000ULL)
+					Seconds++;
+
+				Seconds += (uint32_t)(((offset * 0x100000000ULL / time_scale) >> 32) & 0xFFFFFFFFULL);
+				return *this;
+			}
+
+			friend bool operator==(NTPTimestampFormat const &, NTPTimestampFormat const &);
+			friend bool operator!=(NTPTimestampFormat const &, NTPTimestampFormat const &);
 		}PACKED;
 
 		/*
@@ -286,8 +406,8 @@ namespace IP
 																							stratum==16?"without synchronization":"reserved"))));
 			fprintf(out, IP_FIX_HEADER_FMT_STR ": %" PRIu32 "\n", szIndent, "poll", poll);
 			fprintf(out, IP_FIX_HEADER_FMT_STR ": %" PRIu32 "\n", szIndent, "precision", precision);
-			fprintf(out, IP_FIX_HEADER_FMT_STR ": %u.%us\n", szIndent, "root_delay", root_delay.Seconds, root_delay.Fraction);
-			fprintf(out, IP_FIX_HEADER_FMT_STR ": %u.%us\n", szIndent, "root_dispersion", root_dispersion.Seconds, root_dispersion.Fraction);
+			fprintf(out, IP_FIX_HEADER_FMT_STR ": " NTPSHORTTIME_FMT_STR "s\n", szIndent, "root_delay", root_delay.GetValue());
+			fprintf(out, IP_FIX_HEADER_FMT_STR ": " NTPSHORTTIME_FMT_STR "s\n", szIndent, "root_dispersion", root_dispersion.GetValue());
 
 			fprintf(out, IP_FIX_HEADER_FMT_STR ": %c%c%c%c (0X%08X)\n", szIndent, "reference_identification", 
 				isprint((reference_identification >> 24) & 0xFF) ? (reference_identification >> 24) & 0xFF:'.',
@@ -295,14 +415,14 @@ namespace IP
 				isprint((reference_identification >>  8) & 0xFF) ? (reference_identification >>  8) & 0xFF : '.', 
 				isprint((reference_identification)       & 0xFF) ? (reference_identification      ) & 0xFF : '.', reference_identification);
 
-			fprintf(out, IP_FIX_HEADER_FMT_STR ": %" PRIu32 ".%" PRIu32 "s, %s\n", szIndent, "reference_timestamp", reference_timestamp.Seconds, reference_timestamp.Fraction,
-				DateTimeStr(reference_timestamp.Seconds, 1900, reference_timestamp.Fraction).c_str());
-			fprintf(out, IP_FIX_HEADER_FMT_STR ": %" PRIu32 ".%" PRIu32 "s, %s\n", szIndent, "origin_timestamp", origin_timestamp.Seconds, origin_timestamp.Fraction,
-				DateTimeStr(origin_timestamp.Seconds, 1900, origin_timestamp.Fraction).c_str());
-			fprintf(out, IP_FIX_HEADER_FMT_STR ": %" PRIu32 ".%" PRIu32 "s, %s\n", szIndent, "receive_timestamp", receive_timestamp.Seconds, receive_timestamp.Fraction,
-				DateTimeStr(receive_timestamp.Seconds, 1900, receive_timestamp.Fraction).c_str());
-			fprintf(out, IP_FIX_HEADER_FMT_STR ": %" PRIu32 ".%" PRIu32 "s, %s\n", szIndent, "transmit_timestamp", transmit_timestamp.Seconds, transmit_timestamp.Fraction,
-				DateTimeStr(transmit_timestamp.Seconds, 1900, transmit_timestamp.Fraction).c_str());
+			fprintf(out, IP_FIX_HEADER_FMT_STR ": " NTPTIME_FMT_STR "s, %s\n", szIndent, "reference_timestamp", reference_timestamp.GetValue(),
+				reference_timestamp.IsUnknown()?"":DateTimeStr(reference_timestamp.Seconds, 1900, reference_timestamp.Fraction).c_str());
+			fprintf(out, IP_FIX_HEADER_FMT_STR ": " NTPTIME_FMT_STR "s, %s\n", szIndent, "origin_timestamp", origin_timestamp.GetValue(),
+				origin_timestamp.IsUnknown() ? "" : DateTimeStr(origin_timestamp.Seconds, 1900, origin_timestamp.Fraction).c_str());
+			fprintf(out, IP_FIX_HEADER_FMT_STR ": " NTPTIME_FMT_STR "s, %s\n", szIndent, "receive_timestamp", receive_timestamp.GetValue(),
+				receive_timestamp.IsUnknown() ? "" : DateTimeStr(receive_timestamp.Seconds, 1900, receive_timestamp.Fraction).c_str());
+			fprintf(out, IP_FIX_HEADER_FMT_STR ": " NTPTIME_FMT_STR "s, %s\n", szIndent, "transmit_timestamp", transmit_timestamp.GetValue(),
+				transmit_timestamp.IsUnknown() ? "" : DateTimeStr(transmit_timestamp.Seconds, 1900, transmit_timestamp.Fraction).c_str());
 		}
 
 	}PACKED;
@@ -673,7 +793,7 @@ namespace IP
 				if (Header_length < 5)
 					return RET_CODE_BUFFER_NOT_COMPATIBLE;
 
-				if (left_bits + (20ULL << 3) < Header_length * 32)
+				if (left_bits + (20ULL << 3) < (uint64_t)Header_length * 32)
 					return RET_CODE_BOX_TOO_SMALL;
 
 				if (Header_length > 5)
@@ -1042,36 +1162,38 @@ namespace IP
 				bool bHaveDoubleColon = false;
 				int nConsecutiveZero = 0;
 				char szIP[40];
-				for (int i = 0; i < 8; i++)
+				for (size_t i = 0; i < 8; i++)
 				{
 					parts[i] = (address_bytes[2 * i] << 8) | address_bytes[i * 2 + 1];
 					if (parts[i] == 0)
 					{
 						if (!bHaveDoubleColon)
 							nConsecutiveZero++;
-						else
-							cbWritten += sprintf_s(szIP + cbWritten, 40 - cbWritten, "0%s", i>=7?"":":");
+						else if((int64_t)_countof(szIP) > (int64_t)cbWritten)
+							cbWritten += sprintf_s(szIP + cbWritten, _countof(szIP) - cbWritten, "0%s", i>=7?"":":");
 					}
-					else
+					else if ((int64_t)_countof(szIP) > (int64_t)cbWritten)
 					{
 						if (nConsecutiveZero > 1)
 						{
-							cbWritten += sprintf_s(szIP + cbWritten, 40 - cbWritten, ":");
+							cbWritten += sprintf_s(szIP + cbWritten, _countof(szIP) - cbWritten, ":");
 							nConsecutiveZero = 0;
 							bHaveDoubleColon = true;
 						}
 						else if (nConsecutiveZero == 1)
 						{
-							cbWritten += sprintf_s(szIP + cbWritten, 40 - cbWritten, "0:");
+							cbWritten += sprintf_s(szIP + cbWritten, _countof(szIP) - cbWritten, "0:");
 							nConsecutiveZero = 0;
 						}
 
-						cbWritten += sprintf_s(szIP + cbWritten, 40 - cbWritten, "%x%s", parts[i], i >= 7 ? "" : ":");
+						if ((int64_t)_countof(szIP) > (int64_t)cbWritten) {
+							cbWritten += sprintf_s(szIP + cbWritten, _countof(szIP) - cbWritten, "%x%s", parts[i], i >= 7 ? "" : ":");
+						}
 					}
 				}
 
-				if (bHaveDoubleColon == false && nConsecutiveZero > 0)
-					cbWritten += sprintf_s(szIP + cbWritten, 40 - cbWritten, "%s", nConsecutiveZero>1?"::":"0");
+				if (bHaveDoubleColon == false && nConsecutiveZero > 0 && (int64_t)_countof(szIP) > (int64_t)cbWritten)
+					cbWritten += sprintf_s(szIP + cbWritten, _countof(szIP) - cbWritten, "%s", nConsecutiveZero>1?"::":"0");
 
 				return std::string(szIP);
 			}
@@ -1089,7 +1211,7 @@ namespace IP
 				Home_Address_option = 0xC9,
 			};
 
-			uint8_t				Option_Type;
+			uint8_t				Option_Type = 0;
 			uint8_t				Opt_Data_Len = 0;
 
 			virtual ~Option() {}
@@ -1162,7 +1284,7 @@ namespace IP
 		*/
 		struct JumboPayloadOption : public Option
 		{
-			uint32_t			Jumbo_Payload_Length;
+			uint32_t			Jumbo_Payload_Length = 0;
 
 			virtual int Unpack(CBitstream& bs)
 			{
@@ -1193,7 +1315,7 @@ namespace IP
 		*/
 		struct RouterAlertOption : public Option
 		{
-			uint16_t			Router_Alert_Value;
+			uint16_t			Router_Alert_Value = 0;
 
 			virtual int Unpack(CBitstream& bs)
 			{
@@ -1227,7 +1349,7 @@ namespace IP
 		*/
 		struct HomeAddressOption : public Option
 		{
-			Address			Home_Address;
+			Address			Home_Address = { 0 };
 
 			virtual int Unpack(CBitstream& bs)
 			{
@@ -1280,8 +1402,8 @@ namespace IP
 		{
 			struct Hop_by_Hop_Options_Header
 			{
-				uint8_t				Next_Header;
-				uint8_t				Header_Extension_Length;
+				uint8_t				Next_Header = 0;
+				uint8_t				Header_Extension_Length = 0;
 				std::list<Option*>	Options;
 
 				~Hop_by_Hop_Options_Header()
@@ -1348,17 +1470,17 @@ namespace IP
 			Destination Options Header
 			The Destination Options header is used to specify packet delivery 
 			parameters for either intermediate destinations or the final destination. 
-			This header is identified by the value of 60 in the previous header’s Next Header field. 
+			This header is identified by the value of 60 in the previous header's Next Header field. 
 			The Destination Options header has the same structure as the Hop-by-Hop Options header
 			*/
 			using Destination_Options_Header = Hop_by_Hop_Options_Header;
 
 			struct Routing_Header
 			{
-				uint8_t				Next_Header;
-				uint8_t				Header_Extension_Length;
-				uint8_t				Routing_Type;
-				uint8_t				Segments_Left;
+				uint8_t				Next_Header = 0;
+				uint8_t				Header_Extension_Length = 0;
+				uint8_t				Routing_Type = 0;
+				uint8_t				Segments_Left = 0;
 
 				uint8_t*			Routing_Type_Specific_Data = nullptr;
 
@@ -1429,15 +1551,15 @@ namespace IP
 			(assurance that captured packets cannot be retransmitted and accepted as valid data) for the IPv6 packet,
 			including the fields in the IPv6 header that do not change in transit across an IPv6 internetwork.
 			The Authentication header, described in RFC 4302, is part of the security architecture for IP, as defined in RFC 4301.
-			The Authentication header is identified by the value of 51 in the previous header’s Next Header field
+			The Authentication header is identified by the value of 51 in the previous header's Next Header field
 			*/
 			struct Authentication_Header
 			{
-				uint32_t		Next_Header : 8;
-				uint32_t		Payload_Len : 8;
-				uint32_t		Reserved : 16;
-				uint32_t		Security_Parameters_Index;
-				uint32_t		Sequence_Number;
+				uint8_t			Next_Header = 0;
+				uint8_t			Payload_Len = 0;
+				uint16_t		Reserved = 0;
+				uint32_t		Security_Parameters_Index = 0;
+				uint32_t		Sequence_Number = 0;
 
 				uint8_t*		Authentication_Data = nullptr;
 
@@ -1538,7 +1660,7 @@ namespace IP
 				bs.Read(Source_address.address_bytes, 16);
 				bs.Read(Destination_address.address_bytes, 16);
 
-				left_bits -= (40ULL << 3);
+				left_bits -= ((compressed?38ULL:40ULL) << 3);
 				//uint64_t left_payload_bits = ((uint64_t)Payload_length) << 3;
 
 				bool bExtHeaderFinished = false;
@@ -1640,8 +1762,18 @@ namespace IP
 					std::get<1>(IPv6_protocol_descs[Next_header]), std::get<2>(IPv6_protocol_descs[Next_header]));
 				fprintf(out, IP_FIX_HEADER_FMT_STR ": %" PRIu32 "\n", szIndent, "Hop limit", Hop_limit);
 				
-				fprintf(out, IP_FIX_HEADER_FMT_STR ": %s\n", szIndent, "Source address", Source_address.GetIP().c_str());
-				fprintf(out, IP_FIX_HEADER_FMT_STR ": %s\n", szIndent, "Dest address", Destination_address.GetIP().c_str());
+				fprintf(out, IP_FIX_HEADER_FMT_STR ": [%02X %02X %02X %02X %02X %02X %02X %02X - %02X %02X %02X %02X %02X %02X %02X %02X] %s\n", szIndent, "Source address", 
+					Source_address.address_bytes[0], Source_address.address_bytes[1], Source_address.address_bytes[2], Source_address.address_bytes[3],
+					Source_address.address_bytes[4], Source_address.address_bytes[5], Source_address.address_bytes[6], Source_address.address_bytes[7],
+					Source_address.address_bytes[8], Source_address.address_bytes[9], Source_address.address_bytes[10], Source_address.address_bytes[11],
+					Source_address.address_bytes[12], Source_address.address_bytes[13], Source_address.address_bytes[14], Source_address.address_bytes[15],
+					Source_address.GetIP().c_str());
+				fprintf(out, IP_FIX_HEADER_FMT_STR ": [%02X %02X %02X %02X %02X %02X %02X %02X - %02X %02X %02X %02X %02X %02X %02X %02X] %s\n", szIndent, "Dest address", 
+					Destination_address.address_bytes[0], Destination_address.address_bytes[1], Destination_address.address_bytes[2], Destination_address.address_bytes[3],
+					Destination_address.address_bytes[4], Destination_address.address_bytes[5], Destination_address.address_bytes[6], Destination_address.address_bytes[7],
+					Destination_address.address_bytes[8], Destination_address.address_bytes[9], Destination_address.address_bytes[10], Destination_address.address_bytes[11],
+					Destination_address.address_bytes[12], Destination_address.address_bytes[13], Destination_address.address_bytes[14], Destination_address.address_bytes[15],
+					Destination_address.GetIP().c_str());
 			}
 
 		}PACKED;

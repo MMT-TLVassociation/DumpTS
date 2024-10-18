@@ -1,106 +1,34 @@
+/*
+
+MIT License
+
+Copyright (c) 2021 Ravin.Wang(wangf1978@hotmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
 #pragma once
 
 #include <unordered_map>
+#include "systemdef.h"
 
 using namespace std;
-
-#define AUDIO_STREAM_ID						0xE0
-#define FILTER_PID							0x1400//0x1011//0x1011//0x1400
-#define TS_PACKET_SIZE						192
-
-#define DUMP_RAW_OUTPUT						(1<<0)
-#define DUMP_BD_M2TS						(1<<1)
-#define DUMP_PES_OUTPUT						(1<<2)
-#define DUMP_PTS_VIEW						(1<<3)
-#define DUMP_PCM							(1<<4)		// Raw LPCM data
-#define DUMP_WAV							(1<<5)		// MSFT wave file
-#define DUMP_MEDIA_INFO_VIEW				(1<<6)
-
-#define PID_PROGRAM_ASSOCIATION_TABLE		0x0000
-
-#define IS_PES_PAYLOAD(p)					((p)[0] == 0 && (p)[1] == 0 && (p)[2] == 1 && (p)[3] >= 0xBC)
-
-#define MPEG2_VIDEO_STREAM					0x02
-#define MPEG4_AVC_VIDEO_STREAM				0x1B
-#define SMPTE_VC1_VIDEO_STREAM				0xEA
-#define MPEG4_MVC_VIDEO_STREAM				0x20
-#define HEVC_VIDEO_STREAM					0x24
-
-#define MPEG1_AUDIO_STREAM					0x03
-#define MPEG2_AUDIO_STREAM					0x04
-#define AAC_AUDIO_STREAM					0x0F	// ISO/IEC 13818-7 Audio with ADTS transport syntax
-#define MPEG4_AAC_AUDIO_STREAM				0x11	// ISO/IEC 14496-3 Audio with the LATM transport syntax as defined in ISO/IEC 14496-3
-
-#define HDMV_LPCM_AUDIO_STREAM				0x80
-#define DOLBY_AC3_AUDIO_STREAM				0x81
-#define DTS_AUDIO_STREAM					0x82
-#define DOLBY_LOSSLESS_AUDIO_STREAM			0x83
-#define DD_PLUS_AUDIO_STREAM				0x84
-
-#define DTS_HD_EXCEPT_XLL_AUDIO_STREAM		0x85
-#define DTS_HD_XLL_AUDIO_STREAM				0x86
-#define DRA_AUDIO_STREAM					0x87
-#define DRA_EXTENSION_AUDIO_STREAM			0x88
-#define DD_PLUS_SECONDARY_AUDIO_STREAM		0xA1
-#define DTS_HD_SECONDARY_AUDIO_STREAM		0xA2
-
-#define SESF_TELETEXT_STREAM				0x06
-#define TTML_STREAM							0x06
-
-/*
-	0x0A						Multi-protocol Encapsulation
-	0x0B						DSM-CC U-N Messages
-	0x0C						DSM-CC Stream Descriptors
-	0x0D						DSM-CC Sections (any type, including private data)
-*/
-#define DSMCC_TYPE_A						0x0A
-#define DSMCC_TYPE_B						0x0B
-#define DSMCC_TYPE_C						0x0C
-#define DSMCC_TYPE_D						0x0D
-
-#define STREAM_TYPE_NAMEA(st)	(\
-	(st) == MPEG2_VIDEO_STREAM?"MPEG2 Video":(\
-	(st) == MPEG4_AVC_VIDEO_STREAM?"MPEG4 AVC Video":(\
-	(st) == SMPTE_VC1_VIDEO_STREAM?"VC1 Video":(\
-	(st) == MPEG4_MVC_VIDEO_STREAM?"MVC Video":(\
-	(st) == HEVC_VIDEO_STREAM?"HEVC Video":(\
-	(st) == MPEG1_AUDIO_STREAM?"MPEG1 Audio":(\
-	(st) == MPEG2_AUDIO_STREAM?"MPEG2 Audio":(\
-	(st) == AAC_AUDIO_STREAM?"AAC Audio":(\
-	(st) == MPEG4_AAC_AUDIO_STREAM?"MPEG4 AAC Audio":(\
-	(st) == HDMV_LPCM_AUDIO_STREAM?"HDMV LPCM Audio":(\
-	(st) == DOLBY_AC3_AUDIO_STREAM?"AC3 Audio":(\
-	(st) == DTS_AUDIO_STREAM?"DTS Audio":(\
-	(st) == DOLBY_LOSSLESS_AUDIO_STREAM?"Dolby Lossless Audio":(\
-	(st) == DD_PLUS_AUDIO_STREAM?"DD+ Audio":(\
-	(st) == DTS_HD_EXCEPT_XLL_AUDIO_STREAM?"DTS-HD audio":(\
-	(st) == DTS_HD_XLL_AUDIO_STREAM?"DTS-HD Lossless Audio":(\
-	(st) == DRA_AUDIO_STREAM?"DRA Audio":(\
-	(st) == DRA_EXTENSION_AUDIO_STREAM?"DRA Extension Audio":(\
-	(st) == DD_PLUS_SECONDARY_AUDIO_STREAM?"DD+ Secondary Audio":(\
-	(st) == DTS_HD_SECONDARY_AUDIO_STREAM?"DTS LBR Audio":(\
-	(st) == SESF_TELETEXT_STREAM?"Teletext, ARIB subtitle or TTML":(\
-	(st) == DSMCC_TYPE_A?"DSM-CC Multi-protocol Encapsulation":(\
-	(st) == DSMCC_TYPE_B?"DSM-CC DSM-CC U-N Messages":(\
-	(st) == DSMCC_TYPE_C?"DSM-CC DSM-CC Stream Descriptors":(\
-	(st) == DSMCC_TYPE_D?"DSM-CC SM-CC Sections":"Unknown")))))))))))))))))))))))))
-
-enum MPEG_SYSTEM_TYPE
-{
-	MPEG_SYSTEM_UNKNOWN = -1,
-	MPEG_SYSTEM_PS = 0,				// MPEG-2 program stream
-	MPEG_SYSTEM_TS = 1,				// MPEG-2 (188-byte packet) transport stream
-	MPEG_SYSTEM_TTS = 2,			// 192-byte packet transport stream
-	MPEG_SYSTEM_TS204 = 3,			// 204-byte packet transport stream
-	MPEG_SYSTEM_TS208 = 4,			// 204-byte packet transport stream
-	MPEG_SYSTEM_DVD_VIDEO = 5,		// DVD-ROM VOB
-	MPEG_SYSTEM_DVD_VR = 6,			// DVD-VR VOB
-	MPEG_SYSTEM_BDMV = 7,			// BDMV transport stream
-	MPEG_SYSTEM_BDAV = 8,			// BDAV transport stream
-	MPEG_SYSTEM_MP4 = 9,			// ISO MP4
-	MPEG_SYSTEM_MATROSKA = 10,		// Matroska based file-format
-	MPEG_SYSTEM_MAX
-};
 
 struct TS_FORMAT_INFO
 {
@@ -109,6 +37,17 @@ struct TS_FORMAT_INFO
 	unsigned short				num_of_prefix_bytes;
 	unsigned short				num_of_suffix_bytes;
 	bool						encrypted;
+};
+
+// Please see Table 2-28 - Program-specific information
+enum PSI_TYPE
+{
+	PSI_PAT = 0,
+	PSI_PMT,
+	PSI_NIT,
+	PSI_CAT,
+	PSI_TSDT,
+	PSI_IPMP_CIT,
 };
 
 enum PSI_TABLE_ID {
@@ -120,6 +59,8 @@ enum PSI_TABLE_ID {
 	TID_ISO_IEC_14496_object_descriptor_section,
 	TID_Metadata_section,
 	TID_IPMP_Control_Information_section,
+	TID_DIT = 0x7E,
+	TID_SIT = 0x7F,
 	TID_Forbidden = 0xFF
 };
 
@@ -165,6 +106,7 @@ public:
 	int WriteBack(unsigned int off, unsigned char* pBuf, unsigned long cbSize);
 
 	unsigned short GetPID() { return m_PID; }
+	unsigned short GetPCRPID() { return m_PCR_PID; }
 };
 
 class CPSIBuf;
@@ -192,7 +134,7 @@ public:
 		@retval -1 incompatible buffer
 		@retval -2 CRC verification failure
 		@retval -3 Unsupported or unimplemented */
-	int ProcessPSI();
+	int ProcessPSI(int dumpOptions);
 };
 
 class CPMTBuf : public CPSIBuf
