@@ -24,40 +24,24 @@ SOFTWARE.
 
 */
 
-#include "platcomm.h"
-#include "AIFF.h"
+#ifndef _AM_ALGORITHM_SHA1_H_
+#define _AM_ALGORITHM_SHA1_H_
 
-extern std::map<std::string, std::string, CaseInsensitiveComparator> g_params;
-extern int g_verbose_level;
+typedef void*			AMSHA1;
+typedef unsigned char	AMSHA1_RET[20];
 
-int DumpAIFF()
-{
-	int nRet = RET_CODE_SUCCESS;
-	if (g_params.find("input") == g_params.end())
-		return -1;
+/*!	@brief Initialize SHA1 algorithm. */
+AMP_FOUNDATION_PROC	AMSHA1	AM_SHA1_Init	(unsigned char* pBuf=NULL, unsigned long cbBuf=0);
+/*!	@brief Input a buffer for SHA1 hash, it can be called for multiple times. */
+AMP_FOUNDATION_PROC int		AM_SHA1_Input	(AMSHA1 handle, unsigned char* pBuf, unsigned long cbBuf);
+/*!	@brief Calculate the final SHA1 hash value. 
+	@remarks Once it is called, AM_SHA1_Input can't be called any more except AM_SHA1_Reset is called. */
+AMP_FOUNDATION_PROC int		AM_SHA1_Finalize(AMSHA1 handle);
+/*!	@brief Get the calculated hash value. */
+AMP_FOUNDATION_PROC int		AM_SHA1_GetHash	(AMSHA1 handle, AMSHA1_RET& Result);
+/*!	@brief Reset any immediate calculation result, and be ready to calculate a new SHA1 value. */
+AMP_FOUNDATION_PROC	void	AM_SHA1_Reset	(AMSHA1 handle);
+/*!	@brief Release the resource for SHA1 hash process. */
+AMP_FOUNDATION_PROC void	AM_SHA1_Uninit	(AMSHA1& handle);
 
-	std::string szOutputFile;
-	std::string szOutputFmt;
-	std::string& szInputFile = g_params["input"];
-
-	if (g_params.find("outputfmt") != g_params.end())
-		szOutputFmt = g_params["outputfmt"];
-
-	if (g_params.find("output") != g_params.end())
-		szOutputFile = g_params["output"];
-
-	CFileBitstream bs(szInputFile.c_str(), 4096, &nRet);
-
-	if (nRet < 0)
-	{
-		printf("Failed to open the file: %s.\n", szInputFile.c_str());
-		return nRet;
-	}
-
-	AIFF::FormAIFCChunk form_chunk;
-	nRet = form_chunk.Unpack(bs);
-
-	form_chunk.Print();
-
-	return nRet;
-}
+#endif
